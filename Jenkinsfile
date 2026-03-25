@@ -10,13 +10,6 @@ pipeline {
     }
 
     stages {
-
-        stage('Checkout') {
-            steps {
-                git url: 'https://github.com/USERNAME/examflow-platform.git', branch: 'main'
-            }
-        }
-
         stage('Build API Image') {
             steps {
                 dir('services/api-service') {

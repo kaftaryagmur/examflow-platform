@@ -22,6 +22,7 @@ pipeline {
         stage('GCP Auth & Cluster Access') {
             steps {
                 sh '''
+                gcloud auth activate-service-account --key-file=/var/jenkins_home/jenkins-key.json
                 gcloud config set project $PROJECT_ID
                 gcloud auth configure-docker $REGION-docker.pkg.dev -q
                 gcloud container clusters get-credentials $CLUSTER_NAME --region=$REGION

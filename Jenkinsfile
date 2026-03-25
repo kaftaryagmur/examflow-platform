@@ -7,9 +7,28 @@ pipeline {
         REPOSITORY = "examflow-images"
         IMAGE_API = "examflow-api"
         IMAGE_WORKER = "examflow-worker"
+        CLUSTER_NAME = "examflow-cluster"
     }
 
     stages {
+        stage('Verify Tools') {
+            steps {
+                sh 'docker --version'
+                sh 'gcloud --version'
+                sh 'kubectl version --client'
+            }
+        }
+
+        stage('GCP Auth & Cluster Access') {
+            steps {
+                sh '''
+                gcloud config set project $PROJECT_ID
+                gcloud auth configure-docker $REGION-docker.pkg.dev -q
+                gcloud container clusters get-credentials $CLUSTER_NAME --region=$REGION
+                '''
+            }
+        }
+
         stage('Build API Image') {
             steps {
                 dir('services/api-service') {
@@ -37,9 +56,7 @@ pipeline {
 
         stage('Deploy to GKE') {
             steps {
-                sh '''
-                kubectl apply -f k8s/
-                '''
+                sh 'kubectl apply -f k8s/'
             }
         }
     }

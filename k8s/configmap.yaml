@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: examflow-config
+  namespace: examflow
+data:
+  GCP_PROJECT_ID: "bitirme-pubsub"
+  PUBSUB_TOPIC: "document-events"
+  PUBSUB_SUBSCRIPTION: "document-events-worker"
+  PORT: "8080"

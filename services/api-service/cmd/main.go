@@ -81,4 +81,6 @@ func main() {
 
 	log.Printf("api-service listening on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
+
+	//eren devam edicek.
 }

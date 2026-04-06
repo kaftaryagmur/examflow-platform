@@ -13,6 +13,7 @@ pipeline {
         API_IMAGE_FULL    = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_API}"
         WORKER_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_WORKER}"
         IMAGE_TAG         = "${BUILD_NUMBER}"
+        GO_TEST_IMAGE     = "golang:1.26.1"
     }
 
     stages {
@@ -46,19 +47,18 @@ pipeline {
                 anyOf {
                     branch 'develop'
                     branch 'main'
-                    expression { return env.CHANGE_ID && env.CHANGE_TARGET == 'develop' }
+                    expression { return env.CHANGE_ID && env.CHANGE_TARGET == "develop" }
                 }
             }
             steps {
-                dir('services/api-service') {
-                    sh '''
-                        docker run --rm \
-                          -v "$PWD":/app \
-                          -w /app \
-                          golang:1.24 \
-                          sh -c "go test ./..."
-                    '''
-                }
+                sh '''
+                    docker pull $GO_TEST_IMAGE
+                    docker run --rm \
+                      -v "$WORKSPACE":/workspace \
+                      -w /workspace/services/api-service \
+                      $GO_TEST_IMAGE \
+                      sh -c "go version && go test ./..."
+                '''
             }
         }
 
@@ -67,19 +67,18 @@ pipeline {
                 anyOf {
                     branch 'develop'
                     branch 'main'
-                    expression { return env.CHANGE_ID && env.CHANGE_TARGET == 'develop' }
+                    expression { return env.CHANGE_ID && env.CHANGE_TARGET == "develop" }
                 }
             }
             steps {
-                dir('services/worker-service') {
-                    sh '''
-                        docker run --rm \
-                          -v "$PWD":/app \
-                          -w /app \
-                          golang:1.24 \
-                          sh -c "go test ./..."
-                    '''
-                }
+                sh '''
+                    docker pull $GO_TEST_IMAGE
+                    docker run --rm \
+                      -v "$WORKSPACE":/workspace \
+                      -w /workspace/services/worker-service \
+                      $GO_TEST_IMAGE \
+                      sh -c "go version && go test ./..."
+                '''
             }
         }
 

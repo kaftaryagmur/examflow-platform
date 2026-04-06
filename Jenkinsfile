@@ -38,7 +38,6 @@ pipeline {
                 sh 'docker --version'
                 sh 'gcloud --version'
                 sh 'kubectl version --client'
-                sh 'go version || true'
             }
         }
 
@@ -52,7 +51,13 @@ pipeline {
             }
             steps {
                 dir('services/api-service') {
-                    sh 'go test ./...'
+                    sh '''
+                        docker run --rm \
+                          -v "$PWD":/app \
+                          -w /app \
+                          golang:1.24 \
+                          sh -c "go test ./..."
+                    '''
                 }
             }
         }
@@ -67,7 +72,13 @@ pipeline {
             }
             steps {
                 dir('services/worker-service') {
-                    sh 'go test ./...'
+                    sh '''
+                        docker run --rm \
+                          -v "$PWD":/app \
+                          -w /app \
+                          golang:1.24 \
+                          sh -c "go test ./..."
+                    '''
                 }
             }
         }

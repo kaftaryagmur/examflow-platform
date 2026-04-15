@@ -16,21 +16,75 @@ pipeline {
     }
 
     stages {
-        stage('Verify Tools') {
+        stage('Show Context') {
             steps {
-                sh 'docker --version'
-                sh 'gcloud --version'
-                sh 'kubectl version --client'
+                echo "BRANCH_NAME=${env.BRANCH_NAME}"
+                echo "CHANGE_ID=${env.CHANGE_ID}"
+                echo "CHANGE_BRANCH=${env.CHANGE_BRANCH}"
+                echo "CHANGE_TARGET=${env.CHANGE_TARGET}"
+                sh 'printenv | sort | grep -E "^(BRANCH_NAME|CHANGE_ID|CHANGE_BRANCH|CHANGE_TARGET)=" || true'
             }
         }
 
-        stage('Show Branch Info') {
+        stage('Verify Tools') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                    changeRequest()
+                }
+            }
             steps {
+                sh 'go version'
+                sh 'docker --version'
+                sh 'gcloud --version'
+                sh 'kubectl version --client'
                 sh 'echo "BRANCH_NAME=$BRANCH_NAME"'
+                sh 'echo "CHANGE_ID=$CHANGE_ID"'
+                sh 'echo "CHANGE_TARGET=$CHANGE_TARGET"'
+            }
+        }
+
+        stage('Run Tests - API') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                    changeRequest()
+                }
+            }
+            steps {
+                dir('services/api-service') {
+                    sh 'go mod download'
+                    sh 'go test ./...'
+                }
+            }
+        }
+
+        stage('Run Tests - Worker') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                    changeRequest()
+                }
+            }
+            steps {
+                dir('services/worker-service') {
+                    sh 'go mod download'
+                    sh 'go test ./...'
+                }
             }
         }
 
         stage('Build API Image') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                    changeRequest()
+                }
+            }
             steps {
                 dir('services/api-service') {
                     sh '''
@@ -43,6 +97,13 @@ pipeline {
         }
 
         stage('Build Worker Image') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                    changeRequest()
+                }
+            }
             steps {
                 dir('services/worker-service') {
                     sh '''
@@ -65,6 +126,8 @@ pipeline {
                         gcloud config set project $PROJECT_ID
                         gcloud auth configure-docker $REGION-docker.pkg.dev -q
                         gcloud container clusters get-credentials $CLUSTER_NAME --region=$REGION
+                        kubectl config current-context
+                        kubectl get ns $NAMESPACE
                     '''
                 }
             }
@@ -90,6 +153,9 @@ pipeline {
             }
             steps {
                 sh '''
+                    kubectl get deployment api-service -n $NAMESPACE
+                    kubectl get deployment worker-service -n $NAMESPACE
+
                     kubectl set image deployment/api-service \
                       api-service=$API_IMAGE_FULL:$IMAGE_TAG \
                       -n $NAMESPACE
@@ -107,9 +173,22 @@ pipeline {
             }
             steps {
                 sh '''
-                    kubectl rollout status deployment/api-service -n $NAMESPACE
-                    kubectl rollout status deployment/worker-service -n $NAMESPACE
+                    kubectl rollout status deployment/api-service -n $NAMESPACE --timeout=180s
+                    kubectl rollout status deployment/worker-service -n $NAMESPACE --timeout=180s
                 '''
+            }
+        }
+
+        stage('Skip Notice for Feature/Fix Pushes') {
+            when {
+                allOf {
+                    not { branch 'develop' }
+                    not { branch 'main' }
+                    expression { return !env.CHANGE_ID }
+                }
+            }
+            steps {
+                echo 'This is a non-PR feature/fix branch push. Build/test/deploy stages are intentionally skipped.'
             }
         }
     }

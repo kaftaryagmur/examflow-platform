@@ -16,6 +16,16 @@ pipeline {
     }
 
     stages {
+        stage('Show Context') {
+            steps {
+                echo "BRANCH_NAME=${env.BRANCH_NAME}"
+                echo "CHANGE_ID=${env.CHANGE_ID}"
+                echo "CHANGE_BRANCH=${env.CHANGE_BRANCH}"
+                echo "CHANGE_TARGET=${env.CHANGE_TARGET}"
+                sh 'printenv | sort | grep -E "^(BRANCH_NAME|CHANGE_ID|CHANGE_BRANCH|CHANGE_TARGET)=" || true'
+            }
+        }
+
         stage('Verify Tools') {
             when {
                 anyOf {
@@ -25,6 +35,7 @@ pipeline {
                 }
             }
             steps {
+                sh 'go version'
                 sh 'docker --version'
                 sh 'gcloud --version'
                 sh 'kubectl version --client'
@@ -34,7 +45,7 @@ pipeline {
             }
         }
 
-        stage('Run Tests') {
+        stage('Run Tests - API') {
             when {
                 anyOf {
                     branch 'develop'
@@ -44,9 +55,23 @@ pipeline {
             }
             steps {
                 dir('services/api-service') {
+                    sh 'go mod download'
                     sh 'go test ./...'
                 }
+            }
+        }
+
+        stage('Run Tests - Worker') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                    changeRequest()
+                }
+            }
+            steps {
                 dir('services/worker-service') {
+                    sh 'go mod download'
                     sh 'go test ./...'
                 }
             }
@@ -151,6 +176,19 @@ pipeline {
                     kubectl rollout status deployment/api-service -n $NAMESPACE --timeout=180s
                     kubectl rollout status deployment/worker-service -n $NAMESPACE --timeout=180s
                 '''
+            }
+        }
+
+        stage('Skip Notice for Feature/Fix Pushes') {
+            when {
+                allOf {
+                    not { branch 'develop' }
+                    not { branch 'main' }
+                    expression { return !env.CHANGE_ID }
+                }
+            }
+            steps {
+                echo 'This is a non-PR feature/fix branch push. Build/test/deploy stages are intentionally skipped.'
             }
         }
     }

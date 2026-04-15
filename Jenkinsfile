@@ -13,7 +13,6 @@ pipeline {
         API_IMAGE_FULL    = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_API}"
         WORKER_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_WORKER}"
         IMAGE_TAG         = "${BUILD_NUMBER}"
-        GO_TEST_IMAGE     = "golang:1.26.1"
     }
 
     stages {
@@ -36,6 +35,7 @@ pipeline {
                 }
             }
             steps {
+                sh 'go version'
                 sh 'docker --version'
                 sh 'gcloud --version'
                 sh 'kubectl version --client'
@@ -51,14 +51,10 @@ pipeline {
                 }
             }
             steps {
-                sh '''
-                    docker pull $GO_TEST_IMAGE
-                    docker run --rm \
-                      -v "$WORKSPACE":/workspace \
-                      -w /workspace/services/api-service \
-                      $GO_TEST_IMAGE \
-                      sh -c "go version && go test ./..."
-                '''
+                dir('services/api-service') {
+                    sh 'go mod download'
+                    sh 'go test ./...'
+                }
             }
         }
 
@@ -71,14 +67,10 @@ pipeline {
                 }
             }
             steps {
-                sh '''
-                    docker pull $GO_TEST_IMAGE
-                    docker run --rm \
-                      -v "$WORKSPACE":/workspace \
-                      -w /workspace/services/worker-service \
-                      $GO_TEST_IMAGE \
-                      sh -c "go version && go test ./..."
-                '''
+                dir('services/worker-service') {
+                    sh 'go mod download'
+                    sh 'go test ./...'
+                }
             }
         }
 

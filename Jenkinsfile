@@ -31,7 +31,7 @@ pipeline {
                 anyOf {
                     branch 'develop'
                     branch 'main'
-                    expression { return env.CHANGE_ID && env.CHANGE_TARGET == 'develop' }
+                    changeRequest()
                 }
             }
             steps {
@@ -39,6 +39,9 @@ pipeline {
                 sh 'docker --version'
                 sh 'gcloud --version'
                 sh 'kubectl version --client'
+                sh 'echo "BRANCH_NAME=$BRANCH_NAME"'
+                sh 'echo "CHANGE_ID=$CHANGE_ID"'
+                sh 'echo "CHANGE_TARGET=$CHANGE_TARGET"'
             }
         }
 
@@ -47,7 +50,7 @@ pipeline {
                 anyOf {
                     branch 'develop'
                     branch 'main'
-                    expression { return env.CHANGE_ID && env.CHANGE_TARGET == "develop" }
+                    changeRequest()
                 }
             }
             steps {
@@ -63,7 +66,7 @@ pipeline {
                 anyOf {
                     branch 'develop'
                     branch 'main'
-                    expression { return env.CHANGE_ID && env.CHANGE_TARGET == "develop" }
+                    changeRequest()
                 }
             }
             steps {
@@ -79,7 +82,7 @@ pipeline {
                 anyOf {
                     branch 'develop'
                     branch 'main'
-                    expression { return env.CHANGE_ID && env.CHANGE_TARGET == 'develop' }
+                    changeRequest()
                 }
             }
             steps {
@@ -98,7 +101,7 @@ pipeline {
                 anyOf {
                     branch 'develop'
                     branch 'main'
-                    expression { return env.CHANGE_ID && env.CHANGE_TARGET == 'develop' }
+                    changeRequest()
                 }
             }
             steps {
@@ -123,6 +126,8 @@ pipeline {
                         gcloud config set project $PROJECT_ID
                         gcloud auth configure-docker $REGION-docker.pkg.dev -q
                         gcloud container clusters get-credentials $CLUSTER_NAME --region=$REGION
+                        kubectl config current-context
+                        kubectl get ns $NAMESPACE
                     '''
                 }
             }
@@ -148,6 +153,9 @@ pipeline {
             }
             steps {
                 sh '''
+                    kubectl get deployment api-service -n $NAMESPACE
+                    kubectl get deployment worker-service -n $NAMESPACE
+
                     kubectl set image deployment/api-service \
                       api-service=$API_IMAGE_FULL:$IMAGE_TAG \
                       -n $NAMESPACE
@@ -165,8 +173,8 @@ pipeline {
             }
             steps {
                 sh '''
-                    kubectl rollout status deployment/api-service -n $NAMESPACE
-                    kubectl rollout status deployment/worker-service -n $NAMESPACE
+                    kubectl rollout status deployment/api-service -n $NAMESPACE --timeout=180s
+                    kubectl rollout status deployment/worker-service -n $NAMESPACE --timeout=180s
                 '''
             }
         }

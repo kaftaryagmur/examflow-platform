@@ -149,28 +149,23 @@ pipeline {
         }
 
         stage('Deploy with Kustomize') {
-            when {
-                branch 'main'
-            }
-            steps {
-                sh '''
-                    kustomize version
+    when {
+        branch 'main'
+    }
+    steps {
+        sh '''
+            cd k8s/overlays/prod
 
-                    cd k8s/overlays/prod
+            echo "Rendered manifest preview:"
+            kubectl kustomize .
 
-                    kustomize edit set image $API_IMAGE_FULL=$API_IMAGE_FULL:$IMAGE_TAG
-                    kustomize edit set image $WORKER_IMAGE_FULL=$WORKER_IMAGE_FULL:$IMAGE_TAG
+            kubectl apply -k .
 
-                    echo "Rendered manifest preview:"
-                    kubectl kustomize .
-
-                    kubectl apply -k .
-
-                    kubectl rollout status deployment/api-service -n $NAMESPACE --timeout=180s
-                    kubectl rollout status deployment/worker-service -n $NAMESPACE --timeout=180s
-                '''
-            }
-        }
+            kubectl rollout status deployment/api-service -n $NAMESPACE --timeout=180s
+            kubectl rollout status deployment/worker-service -n $NAMESPACE --timeout=180s
+        '''
+    }
+}
 
         stage('Skip Notice for Feature/Fix Pushes') {
             when {

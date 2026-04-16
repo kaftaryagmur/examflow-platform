@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ExamFlow Demo UI</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">ExamFlow Demo</p>
+        <h1>Publish ve servis durumunu tek ekrandan test et</h1>
+        <p class="lede">
+          Bu ekran, backend tarafindaki publish akislarini ve health/ready durumunu
+          hizli test etmek icin hazirlandi.
+        </p>
+      </section>
+
+      <section class="grid">
+        <div class="card">
+          <div class="card-head">
+            <h2>Servis Durumu</h2>
+            <button id="refresh-status" class="ghost-button" type="button">Yenile</button>
+          </div>
+          <div class="status-list">
+            <article class="status-item">
+              <div>
+                <p class="label">/health</p>
+                <p class="hint">Servisin ayakta olup olmadigi</p>
+              </div>
+              <div id="health-status" class="badge neutral">Bekleniyor</div>
+            </article>
+            <article class="status-item">
+              <div>
+                <p class="label">/ready</p>
+                <p class="hint">Publish icin hazirlik durumu</p>
+              </div>
+              <div id="ready-status" class="badge neutral">Bekleniyor</div>
+            </article>
+          </div>
+          <pre id="status-output" class="output muted">Status cagrilari henuz yapilmadi.</pre>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Publish Testi</h2>
+            <span class="hint">document.uploaded event akisi</span>
+          </div>
+
+          <form id="publish-form" class="form">
+            <label>
+              <span>API Base URL</span>
+              <input id="api-base-url" name="apiBaseUrl" type="text" value="http://127.0.0.1:8080" />
+            </label>
+
+            <label>
+              <span>Document ID</span>
+              <input id="document-id" name="documentId" type="text" value="doc-101" />
+            </label>
+
+            <label>
+              <span>File Name</span>
+              <input id="file-name" name="fileName" type="text" value="week1.pdf" />
+            </label>
+
+            <label>
+              <span>Source</span>
+              <input id="source" name="source" type="text" value="demo-ui" />
+            </label>
+
+            <div class="actions">
+              <button id="publish-button" type="submit">Publish Gonder</button>
+            </div>
+          </form>
+
+          <pre id="publish-output" class="output muted">Henuz publish istegi gonderilmedi.</pre>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

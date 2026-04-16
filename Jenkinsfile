@@ -39,6 +39,7 @@ pipeline {
                 sh 'docker --version'
                 sh 'gcloud --version'
                 sh 'kubectl version --client'
+                sh 'kustomize version'
                 sh 'echo "BRANCH_NAME=$BRANCH_NAME"'
                 sh 'echo "CHANGE_ID=$CHANGE_ID"'
                 sh 'echo "CHANGE_TARGET=$CHANGE_TARGET"'
@@ -147,32 +148,24 @@ pipeline {
             }
         }
 
-        stage('Update Kubernetes Deployments') {
+        stage('Deploy with Kustomize') {
             when {
                 branch 'main'
             }
             steps {
                 sh '''
-                    kubectl get deployment api-service -n $NAMESPACE
-                    kubectl get deployment worker-service -n $NAMESPACE
+                    kustomize version
 
-                    kubectl set image deployment/api-service \
-                      api-service=$API_IMAGE_FULL:$IMAGE_TAG \
-                      -n $NAMESPACE
+                    cd k8s/overlays/prod
 
-                    kubectl set image deployment/worker-service \
-                      worker-service=$WORKER_IMAGE_FULL:$IMAGE_TAG \
-                      -n $NAMESPACE
-                '''
-            }
-        }
+                    kustomize edit set image $API_IMAGE_FULL=$API_IMAGE_FULL:$IMAGE_TAG
+                    kustomize edit set image $WORKER_IMAGE_FULL=$WORKER_IMAGE_FULL:$IMAGE_TAG
 
-        stage('Verify Rollout') {
-            when {
-                branch 'main'
-            }
-            steps {
-                sh '''
+                    echo "Rendered manifest preview:"
+                    kubectl kustomize .
+
+                    kubectl apply -k .
+
                     kubectl rollout status deployment/api-service -n $NAMESPACE --timeout=180s
                     kubectl rollout status deployment/worker-service -n $NAMESPACE --timeout=180s
                 '''

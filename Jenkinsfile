@@ -148,23 +148,49 @@ pipeline {
         }
 
         stage('Deploy with Kustomize') {
-    when {
-        branch 'main'
-    }
-    steps {
-        sh '''
-            cd k8s/overlays/prod
+            when {
+                branch 'main'
+            }
+            steps {
+                sh '''
+                    cd k8s/overlays/prod
 
-            echo "Rendered manifest preview:"
-            kubectl kustomize .
+                    echo "Rendered manifest preview:"
+                    kubectl kustomize .
 
-            kubectl apply -k .
+                    kubectl apply -k .
 
-            kubectl rollout status deployment/api-service -n $NAMESPACE --timeout=180s
-            kubectl rollout status deployment/worker-service -n $NAMESPACE --timeout=180s
-        '''
-    }
-}
+                    kubectl rollout status deployment/api-service -n $NAMESPACE         --timeout=180s
+                    kubectl rollout status deployment/worker-service -n $NAMESPACE      --timeout=180s
+                '''
+            }
+        }
+
+        stage('Smoke Test') {
+            when {
+                branch 'main'
+            }
+            steps {
+                sh '''
+                    set -e
+
+                    echo "Running smoke test..."
+                    kubectl get pods -n $NAMESPACE
+
+                    kubectl port-forward service/api-service 8080:80 -n $NAMESPACE >/tmp/api-port-forward.log 2>&1 &
+                    PF_PID=$!
+
+                    sleep 10
+
+                    curl -f http://127.0.0.1:8080/health
+
+                    kill $PF_PID || true
+                    wait $PF_PID || true
+
+                    echo "Smoke test passed."
+                '''
+            }
+        }
 
         stage('Skip Notice for Feature/Fix Pushes') {
             when {

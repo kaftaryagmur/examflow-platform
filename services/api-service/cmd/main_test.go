@@ -62,3 +62,18 @@ func TestPublishReturnsAcceptedResponse(t *testing.T) {
 		t.Fatalf("expected payload to include documentId, got %s", string(fake.lastPayload))
 	}
 }
+
+func TestCORSPreflightReturnsNoContent(t *testing.T) {
+	req := httptest.NewRequest(http.MethodOptions, "/publish", nil)
+	rec := httptest.NewRecorder()
+
+	newServer(context.Background(), nil, "mock").ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", rec.Code)
+	}
+
+	if rec.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("expected wildcard cors header, got %q", rec.Header().Get("Access-Control-Allow-Origin"))
+	}
+}

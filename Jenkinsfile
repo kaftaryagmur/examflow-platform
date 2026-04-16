@@ -147,37 +147,24 @@ pipeline {
             }
         }
 
-        stage('Update Kubernetes Deployments') {
-            when {
-                branch 'main'
-            }
-            steps {
-                sh '''
-                    kubectl get deployment api-service -n $NAMESPACE
-                    kubectl get deployment worker-service -n $NAMESPACE
+        stage('Deploy with Kustomize') {
+    when {
+        branch 'main'
+    }
+    steps {
+        sh '''
+            cd k8s/overlays/prod
 
-                    kubectl set image deployment/api-service \
-                      api-service=$API_IMAGE_FULL:$IMAGE_TAG \
-                      -n $NAMESPACE
+            echo "Rendered manifest preview:"
+            kubectl kustomize .
 
-                    kubectl set image deployment/worker-service \
-                      worker-service=$WORKER_IMAGE_FULL:$IMAGE_TAG \
-                      -n $NAMESPACE
-                '''
-            }
-        }
+            kubectl apply -k .
 
-        stage('Verify Rollout') {
-            when {
-                branch 'main'
-            }
-            steps {
-                sh '''
-                    kubectl rollout status deployment/api-service -n $NAMESPACE --timeout=180s
-                    kubectl rollout status deployment/worker-service -n $NAMESPACE --timeout=180s
-                '''
-            }
-        }
+            kubectl rollout status deployment/api-service -n $NAMESPACE --timeout=180s
+            kubectl rollout status deployment/worker-service -n $NAMESPACE --timeout=180s
+        '''
+    }
+}
 
         stage('Skip Notice for Feature/Fix Pushes') {
             when {

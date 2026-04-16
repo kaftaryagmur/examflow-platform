@@ -39,7 +39,6 @@ pipeline {
                 sh 'docker --version'
                 sh 'gcloud --version'
                 sh 'kubectl version --client'
-                sh 'kustomize version'
                 sh 'echo "BRANCH_NAME=$BRANCH_NAME"'
                 sh 'echo "CHANGE_ID=$CHANGE_ID"'
                 sh 'echo "CHANGE_TARGET=$CHANGE_TARGET"'

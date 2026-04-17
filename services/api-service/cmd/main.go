@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/pubsub"
 )
 
+
 type Event struct {
 	EventType  string `json:"eventType"`
 	DocumentID string `json:"documentId"`

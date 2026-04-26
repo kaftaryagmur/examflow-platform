@@ -66,8 +66,8 @@ func TestParseProcessedEventReturnsFields(t *testing.T) {
 
 func TestParseProcessedEventRequiresCoreFields(t *testing.T) {
 	payload, err := json.Marshal(map[string]string{
-		"documentId": " ",
-		"eventType":  "document.processed",
+		"documentId": "doc-42",
+		"eventType":  " ",
 		"timestamp":  "2026-04-26T15:00:00Z",
 	})
 	if err != nil {
@@ -77,5 +77,44 @@ func TestParseProcessedEventRequiresCoreFields(t *testing.T) {
 	_, err = parseProcessedEvent(payload)
 	if err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+func TestParseProcessedEventAllowsEmptyDocumentID(t *testing.T) {
+	payload, err := json.Marshal(map[string]string{
+		"documentId": " ",
+		"eventType":  "document.processed",
+		"timestamp":  "2026-04-26T15:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	event, err := parseProcessedEvent(payload)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if event.DocumentID != "" {
+		t.Fatalf("expected trimmed empty documentId, got %q", event.DocumentID)
+	}
+}
+
+func TestValidateDocumentReturnsValidWhenDocumentIDExists(t *testing.T) {
+	result := validateDocument(processedEvent{DocumentID: "doc-123"})
+
+	if result.Status != "valid" {
+		t.Fatalf("expected valid, got %q", result.Status)
+	}
+	if result.DocumentID != "doc-123" {
+		t.Fatalf("expected doc-123, got %q", result.DocumentID)
+	}
+}
+
+func TestValidateDocumentReturnsInvalidWhenDocumentIDMissing(t *testing.T) {
+	result := validateDocument(processedEvent{DocumentID: ""})
+
+	if result.Status != "invalid" {
+		t.Fatalf("expected invalid, got %q", result.Status)
 	}
 }

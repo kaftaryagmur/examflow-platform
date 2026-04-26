@@ -27,6 +27,11 @@ type processedEvent struct {
 	Timestamp  string `json:"timestamp"`
 }
 
+type validationResult struct {
+	DocumentID string
+	Status     string
+}
+
 func main() {
 	port := os.Getenv("PORT")
 	projectID := os.Getenv("GCP_PROJECT_ID")
@@ -106,6 +111,9 @@ func startConsumer(ctx context.Context, projectID, subscriptionID string) {
 			"event_type", event.EventType,
 			"timestamp", event.Timestamp,
 		)
+
+		result := validateDocument(event)
+		log.Printf("validation_result=%s document_id=%s", result.Status, result.DocumentID)
 		msg.Ack()
 	})
 	if err != nil {
@@ -123,9 +131,6 @@ func parseProcessedEvent(data []byte) (processedEvent, error) {
 	event.EventType = strings.TrimSpace(event.EventType)
 	event.Timestamp = strings.TrimSpace(event.Timestamp)
 
-	if event.DocumentID == "" {
-		return processedEvent{}, fmt.Errorf("documentId is required")
-	}
 	if event.EventType == "" {
 		return processedEvent{}, fmt.Errorf("eventType is required")
 	}
@@ -134,6 +139,18 @@ func parseProcessedEvent(data []byte) (processedEvent, error) {
 	}
 
 	return event, nil
+}
+
+func validateDocument(event processedEvent) validationResult {
+	status := "invalid"
+	if strings.TrimSpace(event.DocumentID) != "" {
+		status = "valid"
+	}
+
+	return validationResult{
+		DocumentID: event.DocumentID,
+		Status:     status,
+	}
 }
 
 func logKV(level, service, msg string, keyvals ...any) {

@@ -28,6 +28,13 @@ type validatedEvent struct {
 	Timestamp        string `json:"timestamp"`
 }
 
+type Exam struct {
+	DocumentID       string `json:"documentId"`
+	ValidationResult string `json:"validationResult"`
+	Status           string `json:"status"`
+	CreatedAt        string `json:"createdAt"`
+}
+
 type examMessage interface {
 	ID() string
 	Data() []byte
@@ -122,7 +129,14 @@ func handleValidatedMessage(msg examMessage) {
 		return
 	}
 
-	log.Printf("document_id=%s validation_result=%s", event.DocumentID, event.ValidationResult)
+	exam := buildExam(event)
+	log.Printf(
+		"exam_created document_id=%s validation_result=%s status=%s created_at=%s",
+		exam.DocumentID,
+		exam.ValidationResult,
+		exam.Status,
+		exam.CreatedAt,
+	)
 	msg.Ack()
 }
 
@@ -145,6 +159,15 @@ func parseValidatedEvent(data []byte) (validatedEvent, error) {
 	}
 
 	return event, nil
+}
+
+func buildExam(event validatedEvent) Exam {
+	return Exam{
+		DocumentID:       event.DocumentID,
+		ValidationResult: event.ValidationResult,
+		Status:           "created",
+		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
+	}
 }
 
 func logKV(level, service, msg string, keyvals ...any) {

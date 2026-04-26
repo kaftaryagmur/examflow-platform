@@ -1,11 +1,35 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"cloud.google.com/go/pubsub"
 )
+
+type fakePublishResult struct {
+	id  string
+	err error
+}
+
+func (f fakePublishResult) Get(context.Context) (string, error) {
+	return f.id, f.err
+}
+
+type fakePublisher struct {
+	lastPayload []byte
+	result      fakePublishResult
+}
+
+func (f *fakePublisher) Publish(_ context.Context, msg *pubsub.Message) publishResult {
+	f.lastPayload = msg.Data
+	return f.result
+}
 
 func TestHealthReturnsOK(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -116,5 +140,63 @@ func TestValidateDocumentReturnsInvalidWhenDocumentIDMissing(t *testing.T) {
 
 	if result.Status != "invalid" {
 		t.Fatalf("expected invalid, got %q", result.Status)
+	}
+}
+
+func TestBuildValidatedEventReturnsExpectedFields(t *testing.T) {
+	event := buildValidatedEvent(validationResult{
+		DocumentID: "doc-123",
+		Status:     "valid",
+	})
+
+	if event.DocumentID != "doc-123" {
+		t.Fatalf("expected doc-123, got %q", event.DocumentID)
+	}
+	if event.EventType != "document.validated" {
+		t.Fatalf("expected document.validated, got %q", event.EventType)
+	}
+	if event.ValidationResult != "valid" {
+		t.Fatalf("expected valid, got %q", event.ValidationResult)
+	}
+	if event.Timestamp == "" {
+		t.Fatal("expected timestamp to be populated")
+	}
+}
+
+func TestPublishValidatedEventPublishesPayload(t *testing.T) {
+	pub := &fakePublisher{
+		result: fakePublishResult{id: "msg-123"},
+	}
+
+	err := publishValidatedEvent(context.Background(), pub, validationResult{
+		DocumentID: "doc-123",
+		Status:     "valid",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if !bytes.Contains(pub.lastPayload, []byte(`"documentId":"doc-123"`)) {
+		t.Fatalf("expected documentId in payload, got %s", string(pub.lastPayload))
+	}
+	if !bytes.Contains(pub.lastPayload, []byte(`"eventType":"document.validated"`)) {
+		t.Fatalf("expected eventType in payload, got %s", string(pub.lastPayload))
+	}
+	if !bytes.Contains(pub.lastPayload, []byte(`"validationResult":"valid"`)) {
+		t.Fatalf("expected validationResult in payload, got %s", string(pub.lastPayload))
+	}
+}
+
+func TestPublishValidatedEventReturnsPublishError(t *testing.T) {
+	pub := &fakePublisher{
+		result: fakePublishResult{err: errors.New("publish failed")},
+	}
+
+	err := publishValidatedEvent(context.Background(), pub, validationResult{
+		DocumentID: "doc-123",
+		Status:     "valid",
+	})
+	if err == nil {
+		t.Fatal("expected publish error")
 	}
 }

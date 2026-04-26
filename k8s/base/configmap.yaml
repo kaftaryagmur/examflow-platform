@@ -8,4 +8,5 @@ data:
   PUBSUB_TOPIC: "document-events"
   PUBSUB_SUBSCRIPTION: "document-events-worker"
   PUBSUB_VALIDATION_SUBSCRIPTION: "document-events-validation"
+  PUBSUB_VALIDATED_TOPIC: "document-events"
   PORT: "8080"

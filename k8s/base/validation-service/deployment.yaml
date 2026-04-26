@@ -20,6 +20,16 @@ spec:
           ports:
             - containerPort: 8080
           env:
+            - name: GCP_PROJECT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: examflow-config
+                  key: GCP_PROJECT_ID
+            - name: PUBSUB_VALIDATION_SUBSCRIPTION
+              valueFrom:
+                configMapKeyRef:
+                  name: examflow-config
+                  key: PUBSUB_VALIDATION_SUBSCRIPTION
             - name: PORT
               value: "8080"
           livenessProbe:

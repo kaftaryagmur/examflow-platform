@@ -6,11 +6,13 @@ pipeline {
         REGION       = "europe-west1"
         REPOSITORY   = "examflow-images"
         IMAGE_API    = "examflow-api"
+        IMAGE_VALIDATION = "examflow-validation"
         IMAGE_WORKER = "examflow-worker"
         CLUSTER_NAME = "examflow-cluster"
         NAMESPACE    = "examflow"
 
         API_IMAGE_FULL    = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_API}"
+        VALIDATION_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_VALIDATION}"
         WORKER_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_WORKER}"
         IMAGE_TAG         = "${BUILD_NUMBER}"
     }
@@ -77,6 +79,22 @@ pipeline {
             }
         }
 
+        stage('Run Tests - Validation') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                    changeRequest()
+                }
+            }
+            steps {
+                dir('services/validation-service') {
+                    sh 'go mod download'
+                    sh 'go test ./...'
+                }
+            }
+        }
+
         stage('Build API Image') {
             when {
                 anyOf {
@@ -91,6 +109,25 @@ pipeline {
                         docker build \
                           -t $API_IMAGE_FULL:$IMAGE_TAG \
                           -t $API_IMAGE_FULL:latest .
+                    '''
+                }
+            }
+        }
+
+        stage('Build Validation Image') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                    changeRequest()
+                }
+            }
+            steps {
+                dir('services/validation-service') {
+                    sh '''
+                        docker build \
+                          -t $VALIDATION_IMAGE_FULL:$IMAGE_TAG \
+                          -t $VALIDATION_IMAGE_FULL:latest .
                     '''
                 }
             }
@@ -141,6 +178,8 @@ pipeline {
                 sh '''
                     docker push $API_IMAGE_FULL:$IMAGE_TAG
                     docker push $API_IMAGE_FULL:latest
+                    docker push $VALIDATION_IMAGE_FULL:$IMAGE_TAG
+                    docker push $VALIDATION_IMAGE_FULL:latest
                     docker push $WORKER_IMAGE_FULL:$IMAGE_TAG
                     docker push $WORKER_IMAGE_FULL:latest
                 '''
@@ -161,6 +200,7 @@ pipeline {
                     kubectl apply -k .
 
                     kubectl rollout status deployment/api-service -n $NAMESPACE         --timeout=180s
+                    kubectl rollout status deployment/validation-service -n $NAMESPACE  --timeout=180s
                     kubectl rollout status deployment/worker-service -n $NAMESPACE      --timeout=180s
                 '''
             }
@@ -183,6 +223,16 @@ pipeline {
                     sleep 10
 
                     curl -f http://127.0.0.1:8080/health
+
+                    kubectl port-forward service/validation-service 8081:80 -n $NAMESPACE >/tmp/validation-port-forward.log 2>&1 &
+                    VF_PID=$!
+
+                    sleep 5
+
+                    curl -f http://127.0.0.1:8081/health
+
+                    kill $VF_PID || true
+                    wait $VF_PID || true
 
                     kill $PF_PID || true
                     wait $PF_PID || true

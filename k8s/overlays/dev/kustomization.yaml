@@ -6,5 +6,7 @@ namespace: examflow
 images:
   - name: europe-west1-docker.pkg.dev/bitirme-pubsub/examflow-images/examflow-api
     newTag: latest
+  - name: europe-west1-docker.pkg.dev/bitirme-pubsub/examflow-images/examflow-validation
+    newTag: latest
   - name: europe-west1-docker.pkg.dev/bitirme-pubsub/examflow-images/examflow-worker
     newTag: latest

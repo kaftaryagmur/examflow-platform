@@ -90,6 +90,26 @@ func TestParseValidatedEventRequiresValidationResult(t *testing.T) {
 	}
 }
 
+func TestBuildExamReturnsExpectedFields(t *testing.T) {
+	exam := buildExam(validatedEvent{
+		DocumentID:       "doc-123",
+		ValidationResult: "valid",
+	})
+
+	if exam.DocumentID != "doc-123" {
+		t.Fatalf("expected doc-123, got %q", exam.DocumentID)
+	}
+	if exam.ValidationResult != "valid" {
+		t.Fatalf("expected valid, got %q", exam.ValidationResult)
+	}
+	if exam.Status != "created" {
+		t.Fatalf("expected created, got %q", exam.Status)
+	}
+	if exam.CreatedAt == "" {
+		t.Fatal("expected createdAt to be populated")
+	}
+}
+
 func TestHandleValidatedMessageAcksValidPayload(t *testing.T) {
 	payload, err := json.Marshal(map[string]string{
 		"documentId":       "doc-123",

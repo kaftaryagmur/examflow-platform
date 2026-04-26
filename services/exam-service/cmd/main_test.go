@@ -102,11 +102,46 @@ func TestBuildExamReturnsExpectedFields(t *testing.T) {
 	if exam.ValidationResult != "valid" {
 		t.Fatalf("expected valid, got %q", exam.ValidationResult)
 	}
-	if exam.Status != "created" {
-		t.Fatalf("expected created, got %q", exam.Status)
+	if exam.Status != examStatusReady {
+		t.Fatalf("expected %s, got %q", examStatusReady, exam.Status)
 	}
 	if exam.CreatedAt == "" {
 		t.Fatal("expected createdAt to be populated")
+	}
+}
+
+func TestResolveExamStatusReturnsReadyForValid(t *testing.T) {
+	status := resolveExamStatus("valid")
+
+	if status != examStatusReady {
+		t.Fatalf("expected %s, got %q", examStatusReady, status)
+	}
+}
+
+func TestResolveExamStatusReturnsFailedForInvalid(t *testing.T) {
+	status := resolveExamStatus("invalid")
+
+	if status != examStatusFailed {
+		t.Fatalf("expected %s, got %q", examStatusFailed, status)
+	}
+}
+
+func TestResolveExamStatusReturnsCreatedForUnknownValue(t *testing.T) {
+	status := resolveExamStatus("pending")
+
+	if status != examStatusCreated {
+		t.Fatalf("expected %s, got %q", examStatusCreated, status)
+	}
+}
+
+func TestBuildExamReturnsFailedStatusForInvalidResult(t *testing.T) {
+	exam := buildExam(validatedEvent{
+		DocumentID:       "doc-999",
+		ValidationResult: "invalid",
+	})
+
+	if exam.Status != examStatusFailed {
+		t.Fatalf("expected %s, got %q", examStatusFailed, exam.Status)
 	}
 }
 

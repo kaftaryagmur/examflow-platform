@@ -35,6 +35,12 @@ type Exam struct {
 	CreatedAt        string `json:"createdAt"`
 }
 
+const (
+	examStatusCreated = "created"
+	examStatusReady   = "ready"
+	examStatusFailed  = "failed"
+)
+
 type examMessage interface {
 	ID() string
 	Data() []byte
@@ -162,11 +168,24 @@ func parseValidatedEvent(data []byte) (validatedEvent, error) {
 }
 
 func buildExam(event validatedEvent) Exam {
+	status := resolveExamStatus(event.ValidationResult)
+
 	return Exam{
 		DocumentID:       event.DocumentID,
 		ValidationResult: event.ValidationResult,
-		Status:           "created",
+		Status:           status,
 		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+func resolveExamStatus(validationResult string) string {
+	switch strings.TrimSpace(validationResult) {
+	case "valid":
+		return examStatusReady
+	case "invalid":
+		return examStatusFailed
+	default:
+		return examStatusCreated
 	}
 }
 

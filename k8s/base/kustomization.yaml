@@ -8,4 +8,7 @@ resources:
   - api-hpa.yaml
   - api-pdb.yaml
 
+  - validation-service/deployment.yaml
+  - validation-service/service.yaml
+
   - worker-deployment.yaml

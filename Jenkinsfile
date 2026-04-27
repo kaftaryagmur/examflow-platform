@@ -236,7 +236,7 @@ pipeline {
                     echo "Rendered manifest preview:"
                     kubectl kustomize .
 
-                    echo "Exam service image override is prepared in kustomize overlays; deployment manifest remains part of SCRUM-56."
+                    echo "Exam service deployment manifest is included and image override is applied through kustomize."
 
                     kubectl apply -k .
 

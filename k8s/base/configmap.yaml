@@ -7,4 +7,7 @@ data:
   GCP_PROJECT_ID: "bitirme-pubsub"
   PUBSUB_TOPIC: "document-events"
   PUBSUB_SUBSCRIPTION: "document-events-worker"
+  PUBSUB_EXAM_SUBSCRIPTION: "document-events-exam"
+  PUBSUB_VALIDATION_SUBSCRIPTION: "document-events-validation"
+  PUBSUB_VALIDATED_TOPIC: "document-events"
   PORT: "8080"

@@ -6,12 +6,14 @@ pipeline {
         REGION       = "europe-west1"
         REPOSITORY   = "examflow-images"
         IMAGE_API    = "examflow-api"
+        IMAGE_EXAM   = "examflow-exam"
         IMAGE_VALIDATION = "examflow-validation"
         IMAGE_WORKER = "examflow-worker"
         CLUSTER_NAME = "examflow-cluster"
         NAMESPACE    = "examflow"
 
         API_IMAGE_FULL    = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_API}"
+        EXAM_IMAGE_FULL   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_EXAM}"
         VALIDATION_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_VALIDATION}"
         WORKER_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_WORKER}"
         IMAGE_TAG         = "${BUILD_NUMBER}"
@@ -95,6 +97,22 @@ pipeline {
             }
         }
 
+        stage('Run Tests - Exam') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                    changeRequest()
+                }
+            }
+            steps {
+                dir('services/exam-service') {
+                    sh 'go mod download'
+                    sh 'go test ./...'
+                }
+            }
+        }
+
         stage('Build API Image') {
             when {
                 anyOf {
@@ -109,6 +127,25 @@ pipeline {
                         docker build \
                           -t $API_IMAGE_FULL:$IMAGE_TAG \
                           -t $API_IMAGE_FULL:latest .
+                    '''
+                }
+            }
+        }
+
+        stage('Build Exam Image') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                    changeRequest()
+                }
+            }
+            steps {
+                dir('services/exam-service') {
+                    sh '''
+                        docker build \
+                          -t $EXAM_IMAGE_FULL:$IMAGE_TAG \
+                          -t $EXAM_IMAGE_FULL:latest .
                     '''
                 }
             }
@@ -178,6 +215,8 @@ pipeline {
                 sh '''
                     docker push $API_IMAGE_FULL:$IMAGE_TAG
                     docker push $API_IMAGE_FULL:latest
+                    docker push $EXAM_IMAGE_FULL:$IMAGE_TAG
+                    docker push $EXAM_IMAGE_FULL:latest
                     docker push $VALIDATION_IMAGE_FULL:$IMAGE_TAG
                     docker push $VALIDATION_IMAGE_FULL:latest
                     docker push $WORKER_IMAGE_FULL:$IMAGE_TAG
@@ -197,9 +236,12 @@ pipeline {
                     echo "Rendered manifest preview:"
                     kubectl kustomize .
 
+                    echo "Exam service deployment manifest is included and image override is applied through kustomize."
+
                     kubectl apply -k .
 
                     kubectl rollout status deployment/api-service -n $NAMESPACE         --timeout=180s
+                    kubectl rollout status deployment/exam-service -n $NAMESPACE        --timeout=180s
                     kubectl rollout status deployment/validation-service -n $NAMESPACE  --timeout=180s
                     kubectl rollout status deployment/worker-service -n $NAMESPACE      --timeout=180s
                 '''
@@ -230,6 +272,16 @@ pipeline {
                     sleep 5
 
                     curl -f http://127.0.0.1:8081/health
+
+                    kubectl port-forward service/exam-service 8082:80 -n $NAMESPACE >/tmp/exam-port-forward.log 2>&1 &
+                    EF_PID=$!
+
+                    sleep 5
+
+                    curl -f http://127.0.0.1:8082/health
+
+                    kill $EF_PID || true
+                    wait $EF_PID || true
 
                     kill $VF_PID || true
                     wait $VF_PID || true

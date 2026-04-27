@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: exam-service
+spec:
+  selector:
+    app: exam-service
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: ClusterIP

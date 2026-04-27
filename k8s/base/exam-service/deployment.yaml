@@ -1,22 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: validation-service
+  name: exam-service
   labels:
-    app: validation-service
+    app: exam-service
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: validation-service
+      app: exam-service
   template:
     metadata:
       labels:
-        app: validation-service
+        app: exam-service
     spec:
+      serviceAccountName: examflow-ksa
       containers:
-        - name: validation-service
-          image: europe-west1-docker.pkg.dev/bitirme-pubsub/examflow-images/examflow-validation:latest
+        - name: exam-service
+          image: europe-west1-docker.pkg.dev/bitirme-pubsub/examflow-images/examflow-exam:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           env:
@@ -25,27 +27,22 @@ spec:
                 configMapKeyRef:
                   name: examflow-config
                   key: GCP_PROJECT_ID
-            - name: PUBSUB_VALIDATION_SUBSCRIPTION
+            - name: PUBSUB_EXAM_SUBSCRIPTION
               valueFrom:
                 configMapKeyRef:
                   name: examflow-config
-                  key: PUBSUB_VALIDATION_SUBSCRIPTION
-            - name: PUBSUB_VALIDATED_TOPIC
-              valueFrom:
-                configMapKeyRef:
-                  name: examflow-config
-                  key: PUBSUB_VALIDATED_TOPIC
+                  key: PUBSUB_EXAM_SUBSCRIPTION
             - name: PORT
               value: "8080"
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 10
-            periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /health
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 20

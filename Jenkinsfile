@@ -241,6 +241,7 @@ pipeline {
                     kubectl apply -k .
 
                     kubectl rollout status deployment/api-service -n $NAMESPACE         --timeout=180s
+                    kubectl rollout status deployment/exam-service -n $NAMESPACE        --timeout=180s
                     kubectl rollout status deployment/validation-service -n $NAMESPACE  --timeout=180s
                     kubectl rollout status deployment/worker-service -n $NAMESPACE      --timeout=180s
                 '''
@@ -271,6 +272,16 @@ pipeline {
                     sleep 5
 
                     curl -f http://127.0.0.1:8081/health
+
+                    kubectl port-forward service/exam-service 8082:80 -n $NAMESPACE >/tmp/exam-port-forward.log 2>&1 &
+                    EF_PID=$!
+
+                    sleep 5
+
+                    curl -f http://127.0.0.1:8082/health
+
+                    kill $EF_PID || true
+                    wait $EF_PID || true
 
                     kill $VF_PID || true
                     wait $VF_PID || true

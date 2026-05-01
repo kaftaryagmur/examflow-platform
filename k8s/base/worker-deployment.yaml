@@ -29,6 +29,11 @@ spec:
                 configMapKeyRef:
                   name: examflow-config
                   key: PUBSUB_SUBSCRIPTION
+            - name: PUBSUB_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: examflow-config
+                  key: PUBSUB_TOPIC
             - name: APP_ENV
               valueFrom:
                 secretKeyRef:

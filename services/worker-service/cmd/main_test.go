@@ -1,6 +1,32 @@
 package main
 
-import "testing"
+import (
+	"bytes"
+	"context"
+	"errors"
+	"testing"
+
+	"cloud.google.com/go/pubsub"
+)
+
+type fakePublishResult struct {
+	messageID string
+	err       error
+}
+
+func (r fakePublishResult) Get(context.Context) (string, error) {
+	return r.messageID, r.err
+}
+
+type fakePublisher struct {
+	lastPayload []byte
+	err         error
+}
+
+func (p *fakePublisher) Publish(ctx context.Context, msg *pubsub.Message) publishResult {
+	p.lastPayload = msg.Data
+	return fakePublishResult{messageID: "msg-123", err: p.err}
+}
 
 func TestProcessEventBuildsVisibleResult(t *testing.T) {
 	result := processEvent(Event{
@@ -16,5 +42,100 @@ func TestProcessEventBuildsVisibleResult(t *testing.T) {
 	}
 	if result.SummaryPreview == "" {
 		t.Fatal("expected summary preview to be populated")
+	}
+}
+
+func TestBuildProcessedEventReturnsExpectedFields(t *testing.T) {
+	result := ProcessingResult{
+		DocumentID:     "doc-123",
+		Status:         "processed",
+		SummaryPreview: "Processed document doc-123 from file.pdf",
+		ProcessedAt:    "2026-05-02T12:30:00Z",
+	}
+
+	event := buildProcessedEvent(result)
+
+	if event.EventID == "" {
+		t.Fatal("expected eventId to be populated")
+	}
+	if event.EventType != "document.processed" {
+		t.Fatalf("expected document.processed, got %q", event.EventType)
+	}
+	if event.DocumentID != "doc-123" {
+		t.Fatalf("expected doc-123, got %q", event.DocumentID)
+	}
+	if event.Status != "processed" {
+		t.Fatalf("expected processed, got %q", event.Status)
+	}
+	if event.Timestamp == "" {
+		t.Fatal("expected timestamp to be populated")
+	}
+}
+
+func TestShouldProcessEventSkipsDownstreamEvents(t *testing.T) {
+	skipped := []string{
+		"document.processed",
+		"exam.validation.completed",
+		"document.validated",
+	}
+
+	for _, eventType := range skipped {
+		if shouldProcessEvent(Event{EventType: eventType}) {
+			t.Fatalf("expected %s to be skipped", eventType)
+		}
+	}
+}
+
+func TestShouldProcessEventAllowsInitialDocumentEvents(t *testing.T) {
+	allowed := []string{
+		"document.uploaded",
+		"document.created",
+		"document.received",
+		"",
+	}
+
+	for _, eventType := range allowed {
+		if !shouldProcessEvent(Event{EventType: eventType}) {
+			t.Fatalf("expected %s to be processed", eventType)
+		}
+	}
+}
+
+func TestPublishProcessedEventPublishesPayload(t *testing.T) {
+	pub := &fakePublisher{}
+
+	result := ProcessingResult{
+		DocumentID:     "doc-123",
+		Status:         "processed",
+		SummaryPreview: "Processed document doc-123 from file.pdf",
+		ProcessedAt:    "2026-05-02T12:30:00Z",
+	}
+
+	err := publishProcessedEvent(context.Background(), pub, result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !bytes.Contains(pub.lastPayload, []byte(`"eventType":"document.processed"`)) {
+		t.Fatalf("expected eventType in payload, got %s", string(pub.lastPayload))
+	}
+
+	if !bytes.Contains(pub.lastPayload, []byte(`"documentId":"doc-123"`)) {
+		t.Fatalf("expected documentId in payload, got %s", string(pub.lastPayload))
+	}
+}
+
+func TestPublishProcessedEventReturnsPublishError(t *testing.T) {
+	pub := &fakePublisher{err: errors.New("publish failed")}
+
+	result := ProcessingResult{
+		DocumentID:  "doc-123",
+		Status:      "processed",
+		ProcessedAt: "2026-05-02T12:30:00Z",
+	}
+
+	err := publishProcessedEvent(context.Background(), pub, result)
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }

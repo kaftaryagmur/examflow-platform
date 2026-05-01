@@ -152,8 +152,11 @@ func TestBuildValidatedEventReturnsExpectedFields(t *testing.T) {
 	if event.DocumentID != "doc-123" {
 		t.Fatalf("expected doc-123, got %q", event.DocumentID)
 	}
-	if event.EventType != "document.validated" {
-		t.Fatalf("expected document.validated, got %q", event.EventType)
+	if event.EventType != "exam.validation.completed" {
+		t.Fatalf("expected exam.validation.completed, got %q", event.EventType)
+	}
+	if event.EventID == "" {
+		t.Fatal("expected eventId to be populated")
 	}
 	if event.ValidationResult != "valid" {
 		t.Fatalf("expected valid, got %q", event.ValidationResult)
@@ -179,7 +182,7 @@ func TestPublishValidatedEventPublishesPayload(t *testing.T) {
 	if !bytes.Contains(pub.lastPayload, []byte(`"documentId":"doc-123"`)) {
 		t.Fatalf("expected documentId in payload, got %s", string(pub.lastPayload))
 	}
-	if !bytes.Contains(pub.lastPayload, []byte(`"eventType":"document.validated"`)) {
+	if !bytes.Contains(pub.lastPayload, []byte(`"eventType":"exam.validation.completed"`)) {
 		t.Fatalf("expected eventType in payload, got %s", string(pub.lastPayload))
 	}
 	if !bytes.Contains(pub.lastPayload, []byte(`"validationResult":"valid"`)) {

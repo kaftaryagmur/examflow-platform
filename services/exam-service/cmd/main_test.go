@@ -53,7 +53,7 @@ func TestHealthRejectsNonGET(t *testing.T) {
 func TestParseValidatedEventReturnsFields(t *testing.T) {
 	payload, err := json.Marshal(map[string]string{
 		"documentId":       "doc-123",
-		"eventType":        "document.validated",
+		"eventType":        "exam.validation.completed",
 		"validationResult": "valid",
 		"timestamp":        "2026-04-26T15:00:00Z",
 	})
@@ -77,7 +77,7 @@ func TestParseValidatedEventReturnsFields(t *testing.T) {
 func TestParseValidatedEventRequiresValidationResult(t *testing.T) {
 	payload, err := json.Marshal(map[string]string{
 		"documentId":       "doc-123",
-		"eventType":        "document.validated",
+		"eventType":        "exam.validation.completed",
 		"validationResult": " ",
 	})
 	if err != nil {
@@ -148,7 +148,7 @@ func TestBuildExamReturnsFailedStatusForInvalidResult(t *testing.T) {
 func TestHandleValidatedMessageAcksValidPayload(t *testing.T) {
 	payload, err := json.Marshal(map[string]string{
 		"documentId":       "doc-123",
-		"eventType":        "document.validated",
+		"eventType":        "exam.validation.completed",
 		"validationResult": "valid",
 	})
 	if err != nil {
@@ -175,5 +175,19 @@ func TestHandleValidatedMessageNacksInvalidJSON(t *testing.T) {
 	}
 	if msg.acked {
 		t.Fatal("did not expect message to be acked")
+	}
+}
+
+func TestResolveExamStatusAcceptsPassed(t *testing.T) {
+	got := resolveExamStatus("PASSED")
+	if got != examStatusReady {
+		t.Fatalf("expected %s, got %s", examStatusReady, got)
+	}
+}
+
+func TestResolveExamStatusAcceptsFailed(t *testing.T) {
+	got := resolveExamStatus("FAILED")
+	if got != examStatusFailed {
+		t.Fatalf("expected %s, got %s", examStatusFailed, got)
 	}
 }

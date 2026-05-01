@@ -22,6 +22,7 @@ type healthResponse struct {
 }
 
 type validatedEvent struct {
+	EventID          string `json:"eventId,omitempty"`
 	DocumentID       string `json:"documentId"`
 	EventType        string `json:"eventType"`
 	ValidationResult string `json:"validationResult"`
@@ -36,9 +37,9 @@ type Exam struct {
 }
 
 const (
-	examStatusCreated = "created"
-	examStatusReady   = "ready"
-	examStatusFailed  = "failed"
+	examStatusCreated = "DRAFT"
+	examStatusReady   = "VALIDATED"
+	examStatusFailed  = "FAILED"
 )
 
 type examMessage interface {
@@ -129,19 +130,27 @@ func handleValidatedMessage(msg examMessage) {
 		return
 	}
 
-	if event.EventType != "document.validated" {
+	if event.EventType != "exam.validation.completed" {
 		logKV("warn", "exam-service", "unexpected event type", "message_id", msg.ID(), "event_type", event.EventType)
 		msg.Ack()
 		return
 	}
 
+	logKV(
+		"info", "exam-service", "validation result received",
+		"message_id", msg.ID(),
+		"document_id", event.DocumentID,
+		"event_type", event.EventType,
+		"validation_result", event.ValidationResult,
+	)
+
 	exam := buildExam(event)
-	log.Printf(
-		"exam_created document_id=%s validation_result=%s status=%s created_at=%s",
-		exam.DocumentID,
-		exam.ValidationResult,
-		exam.Status,
-		exam.CreatedAt,
+	logKV(
+		"info", "exam-service", "exam state updated",
+		"document_id", exam.DocumentID,
+		"validation_result", exam.ValidationResult,
+		"state", exam.Status,
+		"created_at", exam.CreatedAt,
 	)
 	msg.Ack()
 }
@@ -179,10 +188,10 @@ func buildExam(event validatedEvent) Exam {
 }
 
 func resolveExamStatus(validationResult string) string {
-	switch strings.TrimSpace(validationResult) {
-	case "valid":
+	switch strings.ToLower(strings.TrimSpace(validationResult)) {
+	case "valid", "passed":
 		return examStatusReady
-	case "invalid":
+	case "invalid", "failed":
 		return examStatusFailed
 	default:
 		return examStatusCreated

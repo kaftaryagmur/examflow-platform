@@ -203,6 +203,89 @@ kubectl rollout/smoke test
 sunum veya demo hazirligi
 ```
 
+## Jenkins IP Degistiginde Webhook Guncelleme
+
+Jenkins VM stop/start yapildiginda external IP degisebilir. Bu durumda Jenkins URL ve GitHub webhook URL guncellenmelidir.
+
+Yeni external IP'yi ogrenmek icin:
+
+```powershell
+gcloud compute instances describe jenkins-server `
+  --zone=us-central1-a `
+  --format="value(networkInterfaces[0].accessConfigs[0].natIP)"
+```
+
+Ornek yeni IP:
+
+```text
+136.116.180.42
+```
+
+### Jenkins URL Guncelleme
+
+Jenkins arayuzunde:
+
+```text
+Manage Jenkins -> System -> Jenkins URL
+```
+
+alanini guncelle:
+
+```text
+http://NEW_EXTERNAL_IP:8080/
+```
+
+Ornek:
+
+```text
+http://136.116.180.42:8080/
+```
+
+Kaydet.
+
+### GitHub Webhook Guncelleme
+
+GitHub repository icinde:
+
+```text
+Settings -> Webhooks
+```
+
+mevcut webhook'u duzenle.
+
+Payload URL alanini guncelle:
+
+```text
+http://NEW_EXTERNAL_IP:8080/github-webhook/
+```
+
+Ornek:
+
+```text
+http://136.116.180.42:8080/github-webhook/
+```
+
+Content type:
+
+```text
+application/json
+```
+
+Events:
+
+```text
+Pull requests
+Pushes
+```
+
+Kaydettikten sonra gerekirse webhook delivery tekrar gonderilebilir veya Jenkins uzerinde multibranch pipeline icin manuel scan calistirilabilir:
+
+```text
+Scan Multibranch Pipeline Now
+```
+
+Not: Jenkins VM icin static external IP kullanilmadigi surece VM her stop/start sonrasinda IP degisebilir. Bu nedenle PR pipeline otomatik tetiklenmezse once Jenkins URL ve GitHub webhook URL kontrol edilmelidir.
+
 ## Kubernetes Dogrulama Komutlari
 
 Cluster ayaktayken:

@@ -150,6 +150,59 @@ $env:STOP_VM="false"
 .\scripts\stop-dev.ps1
 ```
 
+## Operational Modes
+
+Iki farkli calisma modu kullanilir.
+
+### CI Mode
+
+PR, `develop` pipeline veya sadece build/test dogrulamasi icin kullanilir. Bu modda GKE cluster acmak gerekmez; Jenkins VM'in calismasi yeterlidir.
+
+Start:
+
+```powershell
+gcloud compute instances start jenkins-server --zone=us-central1-a
+```
+
+Stop:
+
+```powershell
+gcloud compute instances stop jenkins-server --zone=us-central1-a
+```
+
+Kullanim:
+
+```text
+PR kontrolu
+develop pipeline
+test/build dogrulamasi
+```
+
+### Full Dev/Deploy Mode
+
+GKE deploy, rollout, smoke test veya canli demo gerektiginde kullanilir.
+
+Start:
+
+```powershell
+.\scripts\start-dev.ps1
+```
+
+Stop:
+
+```powershell
+.\scripts\stop-dev.ps1
+```
+
+Kullanim:
+
+```text
+main deploy
+GKE uzerinde canli test
+kubectl rollout/smoke test
+sunum veya demo hazirligi
+```
+
 ## Kubernetes Dogrulama Komutlari
 
 Cluster ayaktayken:

@@ -255,9 +255,16 @@ pipeline {
             steps {
                 sh '''
                     set -e
+                    cleanup() {
+                        if [ -n "$EF_PID" ]; then kill "$EF_PID" 2>/dev/null || true; wait "$EF_PID" 2>/dev/null || true; fi
+                        if [ -n "$VF_PID" ]; then kill "$VF_PID" 2>/dev/null || true; wait "$VF_PID" 2>/dev/null || true; fi
+                        if [ -n "$PF_PID" ]; then kill "$PF_PID" 2>/dev/null || true; wait "$PF_PID" 2>/dev/null || true; fi
+                    }
+                    trap cleanup EXIT
 
                     echo "Running smoke test..."
                     kubectl get pods -n $NAMESPACE
+                    kubectl rollout status deployment/mongodb -n $NAMESPACE --timeout=180s
 
                     kubectl port-forward service/api-service 8080:80 -n $NAMESPACE >/tmp/api-port-forward.log 2>&1 &
                     PF_PID=$!
@@ -280,6 +287,17 @@ pipeline {
 
                     curl -f http://127.0.0.1:8082/health
 
+                    echo "Running MongoDB insert/read smoke test..."
+                    MONGO_USER="$(kubectl get secret examflow-secret -n "$NAMESPACE" -o jsonpath='{.data.MONGODB_USERNAME}' | base64 -d)"
+                    MONGO_PASSWORD="$(kubectl get secret examflow-secret -n "$NAMESPACE" -o jsonpath='{.data.MONGODB_PASSWORD}' | base64 -d)"
+                    MONGO_DATABASE="$(kubectl get configmap examflow-config -n "$NAMESPACE" -o jsonpath='{.data.MONGODB_DATABASE}')"
+                    if [ -z "$MONGO_DATABASE" ]; then
+                        MONGO_DATABASE="examflow"
+                    fi
+
+                    MONGO_SMOKE_SCRIPT="const smokeDb = db.getSiblingDB('$MONGO_DATABASE'); const result = smokeDb.connection_checks.insertOne({ service: 'jenkins-smoke', checkedAt: new Date() }); const found = smokeDb.connection_checks.findOne({ _id: result.insertedId }); if (!found) { throw new Error('mongodb smoke read failed'); } print('mongodb smoke ok');"
+                    kubectl exec -n "$NAMESPACE" deployment/mongodb -- mongosh -u "$MONGO_USER" -p "$MONGO_PASSWORD" --authenticationDatabase admin --quiet --eval "$MONGO_SMOKE_SCRIPT"
+
                     kill $EF_PID || true
                     wait $EF_PID || true
 
@@ -288,6 +306,7 @@ pipeline {
 
                     kill $PF_PID || true
                     wait $PF_PID || true
+                    trap - EXIT
 
                     echo "Smoke test passed."
                 '''

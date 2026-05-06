@@ -4,6 +4,10 @@ resources:
   - configmap.yaml
   - app-secret.yaml
 
+  - mongodb-pvc.yaml
+  - mongodb-deployment.yaml
+  - mongodb-service.yaml
+
   - api-deployment.yaml
   - api-service.yaml
   - api-hpa.yaml

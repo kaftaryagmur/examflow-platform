@@ -2,21 +2,29 @@
 
 ExamFlow, GCP uzerinde calisan event-driven mikroservis ve Kubernetes deployment yasam dongusunu gostermek icin gelistirilen cloud-native bir bitirme projesidir.
 
-Sistem; Go servisleri, Docker image'lari, Google Pub/Sub, Artifact Registry, GKE, Jenkins CI/CD ve Kustomize tabanli Kubernetes manifestlerinden olusur.
+Sistem; Go servisleri, Docker image'lari, Google Pub/Sub, MongoDB, Artifact Registry, GKE, Jenkins CI/CD ve Kustomize tabanli Kubernetes manifestlerinden olusur.
 
 ## Mimari Ozet
 
 - `api-service`: Dis dunyadan gelen istekleri alir ve Pub/Sub event'i uretir.
-- `worker-service`: `document-events-worker` subscription'i uzerinden event tuketir.
+- `worker-service`: `document-events-worker` subscription'i uzerinden `document.uploaded` eventlerini tuketir ve `document.processed` event'i yayinlar.
 - `validation-service`: Validation event akisini dinler ve dogrulama sonucunu yayinlar.
 - `exam-service`: Exam lifecycle tarafini temsil eder ve ilgili eventleri tuketir.
+- `mongodb`: Kullanici, document, exam ve islem gecmisi verileri icin kalici veri katmani olarak konumlandirilir.
 - `demo-ui`: Lokal demo icin hafif HTML/CSS/JavaScript arayuzu.
+
+Temel uygulama akisi:
+
+```text
+API -> Pub/Sub event -> Worker -> Validation -> Exam Service -> MongoDB
+```
 
 Cloud bilesenleri:
 
 - Google Kubernetes Engine Autopilot
 - Artifact Registry
 - Google Pub/Sub
+- MongoDB persistent volume ile Kubernetes icinde calisan veri katmani
 - Google Compute Engine uzerinde Jenkins
 
 ## Dizin Yapisi
@@ -57,10 +65,46 @@ GCP tarafinda:
   - `document-events-worker`
   - `document-events-validation`
   - `document-events-exam`
+- MongoDB service: `mongodb`
+- MongoDB PVC: `mongodb-data`
 - GKE cluster: `examflow-cluster`
 - Jenkins VM: `jenkins-server`
 
 `scripts/start-dev.*` eksik Pub/Sub topic/subscription kaynaklarini otomatik olusturur.
+
+## MongoDB Veri Katmani
+
+MongoDB, Kubernetes icinde ayri `Deployment`, `Service` ve `PersistentVolumeClaim` olarak calisir.
+
+Kaynaklar:
+
+```text
+deployment/mongodb
+service/mongodb
+persistentvolumeclaim/mongodb-data
+```
+
+Baglanti bilgileri manifestlere hardcoded yazilmaz:
+
+- `MONGODB_HOST`, `MONGODB_PORT`, `MONGODB_DATABASE`: `examflow-config` ConfigMap
+- `MONGODB_USERNAME`, `MONGODB_PASSWORD`: `examflow-secret` Secret
+- `MONGODB_URI`: servis container'larina environment variable olarak inject edilir
+
+Cluster ici baglanti Kubernetes service discovery ile yapilir:
+
+```text
+mongodb://$(MONGODB_USERNAME):$(MONGODB_PASSWORD)@$(MONGODB_HOST):$(MONGODB_PORT)/$(MONGODB_DATABASE)?authSource=admin
+```
+
+Varsayilan service adi:
+
+```text
+mongodb
+```
+
+API service acilis sirasinda MongoDB baglantisini kontrol eder, `connection_checks` collection'i uzerinden insert/read dogrulamasi yapar ve sonucu loglar. `/ready` endpoint'i MongoDB ping sonucunu `databaseStatus` alani ile raporlar.
+
+Exam service, `document.validated` eventlerinden olusan exam state kayitlarini `exams` collection'ina yazar. MongoDB verisi `mongodb-data` PVC uzerinde tutuldugu icin pod restart durumunda veri korunur.
 
 ## Lokal Testler
 
@@ -112,6 +156,8 @@ CLUSTER_NAME=examflow-cluster
 GKE_MODE=autopilot
 VM_NAME=jenkins-server
 VM_ZONE=us-central1-a
+START_JENKINS_CONTAINER=true
+JENKINS_CONTAINER_NAME=jenkins
 K8S_OVERLAY=k8s/overlays/prod
 ```
 
@@ -162,6 +208,7 @@ Start:
 
 ```powershell
 gcloud compute instances start jenkins-server --zone=us-central1-a
+gcloud compute ssh jenkins-server --zone=us-central1-a --command="docker start jenkins"
 ```
 
 Stop:
@@ -294,6 +341,7 @@ Cluster ayaktayken:
 kubectl get pods -n examflow
 kubectl get deploy -n examflow
 kubectl get svc -n examflow
+kubectl get pvc -n examflow
 kubectl get hpa -n examflow
 ```
 
@@ -304,6 +352,20 @@ kubectl logs -n examflow deployment/api-service --tail=100
 kubectl logs -n examflow deployment/worker-service --tail=100
 kubectl logs -n examflow deployment/validation-service --tail=100
 kubectl logs -n examflow deployment/exam-service --tail=100
+kubectl logs -n examflow deployment/mongodb --tail=100
+```
+
+MongoDB insert/read smoke test:
+
+```powershell
+$Namespace = "examflow"
+$MongoUserEncoded = kubectl get secret examflow-secret -n $Namespace -o jsonpath="{.data.MONGODB_USERNAME}"
+$MongoPasswordEncoded = kubectl get secret examflow-secret -n $Namespace -o jsonpath="{.data.MONGODB_PASSWORD}"
+$MongoUser = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($MongoUserEncoded))
+$MongoPassword = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($MongoPasswordEncoded))
+$MongoDatabase = kubectl get configmap examflow-config -n $Namespace -o jsonpath="{.data.MONGODB_DATABASE}"
+$MongoSmokeScript = "const smokeDb = db.getSiblingDB('$MongoDatabase'); const result = smokeDb.connection_checks.insertOne({ service: 'manual-smoke', checkedAt: new Date() }); const found = smokeDb.connection_checks.findOne({ _id: result.insertedId }); if (!found) { throw new Error('mongodb smoke read failed'); } print('mongodb smoke ok');"
+kubectl exec -n $Namespace deployment/mongodb -- mongosh -u $MongoUser -p $MongoPassword --authenticationDatabase admin --quiet --eval $MongoSmokeScript
 ```
 
 ## Demo UI

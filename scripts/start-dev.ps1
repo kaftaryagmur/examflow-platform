@@ -19,11 +19,26 @@ $PubsubSubscriptions = if ($env:PUBSUB_SUBSCRIPTIONS) {
     @("document-events-worker", "document-events-validation", "document-events-exam")
 }
 
+function Test-GcloudResource {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Gcloud @Arguments *> $null
+        return $LASTEXITCODE -eq 0
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+}
+
 Write-Host "Using project: $ProjectId"
 & $Gcloud config set project $ProjectId
 
-& $Gcloud compute instances describe $VmName --zone=$VmZone *> $null
-if ($LASTEXITCODE -eq 0) {
+if (Test-GcloudResource @("compute", "instances", "describe", $VmName, "--zone=$VmZone")) {
     $VmStatus = & $Gcloud compute instances describe $VmName --zone=$VmZone --format="value(status)"
     if ($VmStatus -ne "RUNNING") {
         Write-Host "Starting VM: $VmName ($VmZone)"
@@ -36,8 +51,7 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 if ($EnsurePubsub -eq "true") {
-    & $Gcloud pubsub topics describe $PubsubTopic *> $null
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Test-GcloudResource @("pubsub", "topics", "describe", $PubsubTopic))) {
         Write-Host "Creating Pub/Sub topic: $PubsubTopic"
         & $Gcloud pubsub topics create $PubsubTopic
     } else {
@@ -45,8 +59,7 @@ if ($EnsurePubsub -eq "true") {
     }
 
     foreach ($Subscription in $PubsubSubscriptions) {
-        & $Gcloud pubsub subscriptions describe $Subscription *> $null
-        if ($LASTEXITCODE -ne 0) {
+        if (-not (Test-GcloudResource @("pubsub", "subscriptions", "describe", $Subscription))) {
             Write-Host "Creating Pub/Sub subscription: $Subscription -> $PubsubTopic"
             & $Gcloud pubsub subscriptions create $Subscription --topic=$PubsubTopic
         } else {
@@ -55,8 +68,7 @@ if ($EnsurePubsub -eq "true") {
     }
 }
 
-& $Gcloud container clusters describe $ClusterName "$ClusterLocationFlag=$ClusterLocation" *> $null
-if ($LASTEXITCODE -ne 0) {
+if (-not (Test-GcloudResource @("container", "clusters", "describe", $ClusterName, "$ClusterLocationFlag=$ClusterLocation"))) {
     Write-Host "Creating GKE $GkeMode cluster: $ClusterName ($ClusterLocation)"
     if ($GkeMode -eq "autopilot") {
         & $Gcloud container clusters create-auto $ClusterName "$ClusterLocationFlag=$ClusterLocation"

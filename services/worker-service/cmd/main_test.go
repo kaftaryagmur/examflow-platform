@@ -10,22 +10,22 @@ import (
 )
 
 type fakePublishResult struct {
-	id  string
-	err error
+	messageID string
+	err       error
 }
 
-func (f fakePublishResult) Get(context.Context) (string, error) {
-	return f.id, f.err
+func (r fakePublishResult) Get(context.Context) (string, error) {
+	return r.messageID, r.err
 }
 
 type fakePublisher struct {
 	lastPayload []byte
-	result      fakePublishResult
+	err         error
 }
 
-func (f *fakePublisher) Publish(_ context.Context, msg *pubsub.Message) publishResult {
-	f.lastPayload = msg.Data
-	return f.result
+func (p *fakePublisher) Publish(ctx context.Context, msg *pubsub.Message) publishResult {
+	p.lastPayload = msg.Data
+	return fakePublishResult{messageID: "msg-123", err: p.err}
 }
 
 func TestProcessEventBuildsVisibleResult(t *testing.T) {
@@ -46,49 +46,94 @@ func TestProcessEventBuildsVisibleResult(t *testing.T) {
 }
 
 func TestBuildProcessedEventReturnsExpectedFields(t *testing.T) {
-	event := buildProcessedEvent(ProcessingResult{
-		DocumentID: "doc-7",
-		Status:     "processed",
-	})
+	result := ProcessingResult{
+		DocumentID:     "doc-123",
+		Status:         "processed",
+		SummaryPreview: "Processed document doc-123 from file.pdf",
+		ProcessedAt:    "2026-05-02T12:30:00Z",
+	}
 
-	if event.DocumentID != "doc-7" {
-		t.Fatalf("expected doc-7, got %q", event.DocumentID)
+	event := buildProcessedEvent(result)
+
+	if event.EventID == "" {
+		t.Fatal("expected eventId to be populated")
 	}
 	if event.EventType != "document.processed" {
 		t.Fatalf("expected document.processed, got %q", event.EventType)
 	}
+	if event.DocumentID != "doc-123" {
+		t.Fatalf("expected doc-123, got %q", event.DocumentID)
+	}
+	if event.Status != "processed" {
+		t.Fatalf("expected processed, got %q", event.Status)
+	}
 	if event.Timestamp == "" {
-		t.Fatal("expected timestamp")
+		t.Fatal("expected timestamp to be populated")
+	}
+}
+
+func TestShouldProcessEventIgnoresDownstreamEvents(t *testing.T) {
+	ignored := []string{
+		"document.processed",
+		"exam.validation.completed",
+		"document.validated",
+	}
+
+	for _, eventType := range ignored {
+		if shouldProcessEvent(Event{EventType: eventType}) {
+			t.Fatalf("expected %s to be ignored", eventType)
+		}
+	}
+}
+
+func TestShouldProcessEventAllowsSourceEvents(t *testing.T) {
+	allowed := []string{
+		"document.uploaded",
+		"document.received",
+		"",
+	}
+
+	for _, eventType := range allowed {
+		if !shouldProcessEvent(Event{EventType: eventType}) {
+			t.Fatalf("expected %s to be processed", eventType)
+		}
 	}
 }
 
 func TestPublishProcessedEventPublishesPayload(t *testing.T) {
-	pub := &fakePublisher{result: fakePublishResult{id: "msg-123"}}
+	pub := &fakePublisher{}
 
-	err := publishProcessedEvent(context.Background(), pub, ProcessingResult{
-		DocumentID: "doc-7",
-		Status:     "processed",
-	})
-	if err != nil {
+	result := ProcessingResult{
+		DocumentID:     "doc-123",
+		Status:         "processed",
+		SummaryPreview: "Processed document doc-123 from file.pdf",
+		ProcessedAt:    "2026-05-02T12:30:00Z",
+	}
+
+	if err := publishProcessedEvent(context.Background(), pub, result); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if !bytes.Contains(pub.lastPayload, []byte(`"documentId":"doc-7"`)) {
-		t.Fatalf("expected documentId in payload, got %s", string(pub.lastPayload))
-	}
 	if !bytes.Contains(pub.lastPayload, []byte(`"eventType":"document.processed"`)) {
-		t.Fatalf("expected processed event type in payload, got %s", string(pub.lastPayload))
+		t.Fatalf("expected eventType in payload, got %s", string(pub.lastPayload))
+	}
+
+	if !bytes.Contains(pub.lastPayload, []byte(`"documentId":"doc-123"`)) {
+		t.Fatalf("expected documentId in payload, got %s", string(pub.lastPayload))
 	}
 }
 
 func TestPublishProcessedEventReturnsPublishError(t *testing.T) {
-	pub := &fakePublisher{result: fakePublishResult{err: errors.New("publish failed")}}
+	pub := &fakePublisher{err: errors.New("publish failed")}
 
-	err := publishProcessedEvent(context.Background(), pub, ProcessingResult{
-		DocumentID: "doc-7",
-		Status:     "processed",
-	})
+	result := ProcessingResult{
+		DocumentID:  "doc-123",
+		Status:      "processed",
+		ProcessedAt: "2026-05-02T12:30:00Z",
+	}
+
+	err := publishProcessedEvent(context.Background(), pub, result)
 	if err == nil {
-		t.Fatal("expected publish error")
+		t.Fatal("expected error")
 	}
 }

@@ -26,6 +26,7 @@ type healthResponse struct {
 }
 
 type validatedEvent struct {
+	EventID          string `json:"eventId,omitempty"`
 	DocumentID       string `json:"documentId"`
 	EventType        string `json:"eventType"`
 	ValidationResult string `json:"validationResult"`
@@ -46,6 +47,9 @@ const (
 	examStatusValidated  = "validated"
 	examStatusPublished  = "published"
 	examStatusFailed     = "failed"
+
+	examStatusCreated = examStatusDraft
+	examStatusReady   = examStatusValidated
 )
 
 var validExamTransitions = map[string]map[string]bool{
@@ -179,11 +183,19 @@ func handleValidatedMessage(msg examMessage) {
 		return
 	}
 
-	if event.EventType != "document.validated" {
+	if event.EventType != "exam.validation.completed" {
 		logKV("warn", "exam-service", "unexpected event type", "message_id", msg.ID(), "event_type", event.EventType)
 		msg.Ack()
 		return
 	}
+
+	logKV(
+		"info", "exam-service", "validation result received",
+		"message_id", msg.ID(),
+		"document_id", event.DocumentID,
+		"event_type", event.EventType,
+		"validation_result", event.ValidationResult,
+	)
 
 	exam, err := buildExam(event)
 	if err != nil {
@@ -198,12 +210,12 @@ func handleValidatedMessage(msg examMessage) {
 		return
 	}
 
-	log.Printf(
-		"exam_created document_id=%s validation_result=%s status=%s created_at=%s",
-		exam.DocumentID,
-		exam.ValidationResult,
-		exam.Status,
-		exam.CreatedAt,
+	logKV(
+		"info", "exam-service", "exam state updated",
+		"document_id", exam.DocumentID,
+		"validation_result", exam.ValidationResult,
+		"state", exam.Status,
+		"created_at", exam.CreatedAt,
 	)
 	msg.Ack()
 }
@@ -234,6 +246,7 @@ func parseValidatedEvent(data []byte) (validatedEvent, error) {
 		return validatedEvent{}, err
 	}
 
+	event.EventID = strings.TrimSpace(event.EventID)
 	event.DocumentID = strings.TrimSpace(event.DocumentID)
 	event.EventType = strings.TrimSpace(event.EventType)
 	event.ValidationResult = strings.TrimSpace(event.ValidationResult)
@@ -308,13 +321,24 @@ func resolveExamLifecycleStatus(validationResult string) (string, error) {
 		return "", err
 	}
 
-	switch strings.TrimSpace(validationResult) {
-	case "valid":
+	switch strings.ToLower(strings.TrimSpace(validationResult)) {
+	case "valid", "passed":
 		return transitionExamStatus(status, examStatusValidated)
-	case "invalid":
+	case "invalid", "failed":
 		return transitionExamStatus(status, examStatusFailed)
 	default:
 		return "", fmt.Errorf("unsupported validationResult %q", validationResult)
+	}
+}
+
+func resolveExamStatus(validationResult string) string {
+	switch strings.ToLower(strings.TrimSpace(validationResult)) {
+	case "valid", "passed":
+		return examStatusReady
+	case "invalid", "failed":
+		return examStatusFailed
+	default:
+		return examStatusCreated
 	}
 }
 

@@ -33,6 +33,7 @@ type validationResult struct {
 }
 
 type validatedEvent struct {
+	EventID          string `json:"eventId,omitempty"`
 	DocumentID       string `json:"documentId"`
 	EventType        string `json:"eventType"`
 	ValidationResult string `json:"validationResult"`
@@ -208,21 +209,26 @@ func publishValidatedEvent(ctx context.Context, pub publisher, result validation
 	}
 
 	logKV(
-		"info", "validation-service", "document.validated published",
-		"document_id", event.DocumentID,
+		"info", "validation-service", "exam.validation.completed published",
+		"service", "validation-service",
 		"event_type", event.EventType,
-		"message_id", messageID,
+		"document_id", event.DocumentID,
 		"validation_result", event.ValidationResult,
+		"message_id", messageID,
+		"event_id", event.EventID,
 	)
 	return nil
 }
 
 func buildValidatedEvent(result validationResult) validatedEvent {
+	eventTimestamp := time.Now().UTC().Format(time.RFC3339)
+
 	return validatedEvent{
+		EventID:          fmt.Sprintf("validation-%s-%d", result.DocumentID, time.Now().UTC().UnixNano()),
 		DocumentID:       result.DocumentID,
-		EventType:        "document.validated",
+		EventType:        "exam.validation.completed",
 		ValidationResult: result.Status,
-		Timestamp:        time.Now().UTC().Format(time.RFC3339),
+		Timestamp:        eventTimestamp,
 	}
 }
 

@@ -10,6 +10,8 @@ $GkeMode = if ($env:GKE_MODE) { $env:GKE_MODE } else { "autopilot" }
 $Namespace = if ($env:NAMESPACE) { $env:NAMESPACE } else { "examflow" }
 $VmName = if ($env:VM_NAME) { $env:VM_NAME } else { "jenkins-server" }
 $VmZone = if ($env:VM_ZONE) { $env:VM_ZONE } else { "us-central1-a" }
+$StartJenkinsContainer = if ($env:START_JENKINS_CONTAINER) { $env:START_JENKINS_CONTAINER } else { "true" }
+$JenkinsContainerName = if ($env:JENKINS_CONTAINER_NAME) { $env:JENKINS_CONTAINER_NAME } else { "jenkins" }
 $K8sOverlay = if ($env:K8S_OVERLAY) { $env:K8S_OVERLAY } else { "k8s/overlays/prod" }
 $EnsurePubsub = if ($env:ENSURE_PUBSUB) { $env:ENSURE_PUBSUB } else { "true" }
 $PubsubTopic = if ($env:PUBSUB_TOPIC) { $env:PUBSUB_TOPIC } else { "document-events" }
@@ -19,11 +21,28 @@ $PubsubSubscriptions = if ($env:PUBSUB_SUBSCRIPTIONS) {
     @("document-events-worker", "document-events-validation", "document-events-exam")
 }
 
+function Test-GcloudResource {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Gcloud @Arguments *> $null
+        return $LASTEXITCODE -eq 0
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+}
+
 Write-Host "Using project: $ProjectId"
 & $Gcloud config set project $ProjectId
 
-& $Gcloud compute instances describe $VmName --zone=$VmZone *> $null
-if ($LASTEXITCODE -eq 0) {
+$VmExists = $false
+if (Test-GcloudResource @("compute", "instances", "describe", $VmName, "--zone=$VmZone")) {
+    $VmExists = $true
     $VmStatus = & $Gcloud compute instances describe $VmName --zone=$VmZone --format="value(status)"
     if ($VmStatus -ne "RUNNING") {
         Write-Host "Starting VM: $VmName ($VmZone)"
@@ -35,9 +54,14 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "VM not found, skipping start: $VmName ($VmZone)"
 }
 
+if ($VmExists -and $StartJenkinsContainer -eq "true") {
+    Write-Host "Ensuring Jenkins container is running: $JenkinsContainerName"
+    $JenkinsStartCommand = "if docker ps --format '{{.Names}}' | grep -qx '$JenkinsContainerName'; then echo 'Jenkins container already running'; else docker start '$JenkinsContainerName'; fi"
+    & $Gcloud compute ssh $VmName --zone=$VmZone --command=$JenkinsStartCommand
+}
+
 if ($EnsurePubsub -eq "true") {
-    & $Gcloud pubsub topics describe $PubsubTopic *> $null
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Test-GcloudResource @("pubsub", "topics", "describe", $PubsubTopic))) {
         Write-Host "Creating Pub/Sub topic: $PubsubTopic"
         & $Gcloud pubsub topics create $PubsubTopic
     } else {
@@ -45,8 +69,7 @@ if ($EnsurePubsub -eq "true") {
     }
 
     foreach ($Subscription in $PubsubSubscriptions) {
-        & $Gcloud pubsub subscriptions describe $Subscription *> $null
-        if ($LASTEXITCODE -ne 0) {
+        if (-not (Test-GcloudResource @("pubsub", "subscriptions", "describe", $Subscription))) {
             Write-Host "Creating Pub/Sub subscription: $Subscription -> $PubsubTopic"
             & $Gcloud pubsub subscriptions create $Subscription --topic=$PubsubTopic
         } else {
@@ -55,8 +78,7 @@ if ($EnsurePubsub -eq "true") {
     }
 }
 
-& $Gcloud container clusters describe $ClusterName "$ClusterLocationFlag=$ClusterLocation" *> $null
-if ($LASTEXITCODE -ne 0) {
+if (-not (Test-GcloudResource @("container", "clusters", "describe", $ClusterName, "$ClusterLocationFlag=$ClusterLocation"))) {
     Write-Host "Creating GKE $GkeMode cluster: $ClusterName ($ClusterLocation)"
     if ($GkeMode -eq "autopilot") {
         & $Gcloud container clusters create-auto $ClusterName "$ClusterLocationFlag=$ClusterLocation"
@@ -76,7 +98,21 @@ kubectl apply -k $K8sOverlay
 Write-Host "Waiting for workloads in namespace: $Namespace"
 kubectl rollout status deployment/api-service -n $Namespace --timeout=180s
 kubectl rollout status deployment/exam-service -n $Namespace --timeout=180s
+kubectl rollout status deployment/mongodb -n $Namespace --timeout=180s
 kubectl rollout status deployment/validation-service -n $Namespace --timeout=180s
 kubectl rollout status deployment/worker-service -n $Namespace --timeout=180s
+
+Write-Host "Running MongoDB smoke test"
+$MongoUserEncoded = kubectl get secret examflow-secret -n $Namespace -o jsonpath="{.data.MONGODB_USERNAME}"
+$MongoPasswordEncoded = kubectl get secret examflow-secret -n $Namespace -o jsonpath="{.data.MONGODB_PASSWORD}"
+$MongoUser = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($MongoUserEncoded))
+$MongoPassword = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($MongoPasswordEncoded))
+$MongoDatabase = kubectl get configmap examflow-config -n $Namespace -o jsonpath="{.data.MONGODB_DATABASE}"
+if (-not $MongoDatabase) {
+    $MongoDatabase = "examflow"
+}
+
+$MongoSmokeScript = "const smokeDb = db.getSiblingDB('$MongoDatabase'); const result = smokeDb.connection_checks.insertOne({ service: 'start-dev-smoke', checkedAt: new Date() }); const found = smokeDb.connection_checks.findOne({ _id: result.insertedId }); if (!found) { throw new Error('mongodb smoke read failed'); } print('mongodb smoke ok');"
+kubectl exec -n $Namespace deployment/mongodb -- mongosh -u $MongoUser -p $MongoPassword --authenticationDatabase admin --quiet --eval $MongoSmokeScript
 
 Write-Host "Development environment is ready."

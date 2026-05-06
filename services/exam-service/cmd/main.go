@@ -13,6 +13,10 @@ import (
 	"time"
 
 	"cloud.google.com/go/pubsub"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 type healthResponse struct {
@@ -29,10 +33,11 @@ type validatedEvent struct {
 }
 
 type Exam struct {
-	DocumentID       string `json:"documentId"`
-	ValidationResult string `json:"validationResult"`
-	Status           string `json:"status"`
-	CreatedAt        string `json:"createdAt"`
+	ID               bson.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	DocumentID       string        `bson:"documentId" json:"documentId"`
+	ValidationResult string        `bson:"validationResult" json:"validationResult"`
+	Status           string        `bson:"status" json:"status"`
+	CreatedAt        string        `bson:"createdAt" json:"createdAt"`
 }
 
 const (
@@ -71,6 +76,23 @@ type pubsubMessage struct {
 	msg *pubsub.Message
 }
 
+type mongoDBConfig struct {
+	URI      string
+	Database string
+}
+
+type examStore interface {
+	Save(context.Context, Exam) error
+}
+
+type noopExamStore struct{}
+
+type mongoExamStore struct {
+	collection *mongo.Collection
+}
+
+var exams examStore = noopExamStore{}
+
 func (m pubsubMessage) ID() string   { return m.msg.ID }
 func (m pubsubMessage) Data() []byte { return m.msg.Data }
 func (m pubsubMessage) Ack()         { m.msg.Ack() }
@@ -82,6 +104,15 @@ func main() {
 	subscriptionID := os.Getenv("PUBSUB_EXAM_SUBSCRIPTION")
 	if port == "" {
 		port = "8080"
+	}
+
+	mongoClient, mongoDatabase, err := connectMongoDB(context.Background())
+	if err != nil {
+		logKV("warn", "exam-service", "mongodb connection unavailable", "error", err.Error())
+	} else if mongoClient != nil {
+		defer mongoClient.Disconnect(context.Background())
+		exams = mongoExamStore{collection: mongoDatabase.Collection("exams")}
+		logKV("info", "exam-service", "mongodb connection ready", "database", mongoDatabase.Name())
 	}
 
 	handler := newServer()
@@ -161,6 +192,12 @@ func handleValidatedMessage(msg examMessage) {
 		return
 	}
 
+	if err := exams.Save(context.Background(), exam); err != nil {
+		logKV("error", "exam-service", "exam persistence failed", "message_id", msg.ID(), "document_id", exam.DocumentID, "error", err.Error())
+		msg.Nack()
+		return
+	}
+
 	log.Printf(
 		"exam_created document_id=%s validation_result=%s status=%s created_at=%s",
 		exam.DocumentID,
@@ -169,6 +206,26 @@ func handleValidatedMessage(msg examMessage) {
 		exam.CreatedAt,
 	)
 	msg.Ack()
+}
+
+func (noopExamStore) Save(context.Context, Exam) error {
+	return nil
+}
+
+func (store mongoExamStore) Save(ctx context.Context, exam Exam) error {
+	saveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if exam.ID.IsZero() {
+		exam.ID = bson.NewObjectID()
+	}
+
+	_, err := store.collection.InsertOne(saveCtx, exam)
+	if err != nil {
+		return err
+	}
+	logKV("info", "exam-service", "exam persisted to mongodb", "document_id", exam.DocumentID, "collection", store.collection.Name())
+	return nil
 }
 
 func parseValidatedEvent(data []byte) (validatedEvent, error) {
@@ -199,11 +256,50 @@ func buildExam(event validatedEvent) (Exam, error) {
 	}
 
 	return Exam{
+		ID:               bson.NewObjectID(),
 		DocumentID:       event.DocumentID,
 		ValidationResult: event.ValidationResult,
 		Status:           status,
 		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
 	}, nil
+}
+
+func loadMongoDBConfig() (mongoDBConfig, bool) {
+	uri := strings.TrimSpace(os.Getenv("MONGODB_URI"))
+	if uri == "" {
+		return mongoDBConfig{}, false
+	}
+
+	database := strings.TrimSpace(os.Getenv("MONGODB_DATABASE"))
+	if database == "" {
+		database = "examflow"
+	}
+
+	return mongoDBConfig{
+		URI:      uri,
+		Database: database,
+	}, true
+}
+
+func connectMongoDB(ctx context.Context) (*mongo.Client, *mongo.Database, error) {
+	config, ok := loadMongoDBConfig()
+	if !ok {
+		return nil, nil, nil
+	}
+
+	client, err := mongo.Connect(options.Client().ApplyURI(config.URI))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := client.Ping(pingCtx, readpref.Primary()); err != nil {
+		_ = client.Disconnect(context.Background())
+		return nil, nil, err
+	}
+
+	return client, client.Database(config.Database), nil
 }
 
 func resolveExamLifecycleStatus(validationResult string) (string, error) {

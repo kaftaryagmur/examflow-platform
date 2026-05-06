@@ -29,9 +29,32 @@ type ProcessingResult struct {
 	ProcessedAt    string `json:"processedAt"`
 }
 
+type ProcessedEvent struct {
+	DocumentID string `json:"documentId"`
+	EventType  string `json:"eventType"`
+	Timestamp  string `json:"timestamp"`
+}
+
+type publisher interface {
+	Publish(context.Context, *pubsub.Message) publishResult
+}
+
+type publishResult interface {
+	Get(context.Context) (string, error)
+}
+
+type topicPublisher struct {
+	topic *pubsub.Topic
+}
+
+func (t topicPublisher) Publish(ctx context.Context, msg *pubsub.Message) publishResult {
+	return t.topic.Publish(ctx, msg)
+}
+
 func main() {
 	projectID := os.Getenv("GCP_PROJECT_ID")
 	subscriptionID := os.Getenv("PUBSUB_SUBSCRIPTION")
+	processedTopicID := os.Getenv("PUBSUB_PROCESSED_TOPIC")
 
 	ctx := context.Background()
 
@@ -50,6 +73,13 @@ func main() {
 	}
 
 	sub := client.Subscription(subscriptionID)
+	var pub publisher
+	if processedTopicID == "" {
+		logKV("warn", "worker-service", "processed topic not configured, publish disabled")
+	} else {
+		pub = topicPublisher{topic: client.Topic(processedTopicID)}
+	}
+
 	logKV("info", "worker-service", "listening for messages", "subscription", subscriptionID)
 
 	err = sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
@@ -58,6 +88,12 @@ func main() {
 		event, err := parseEvent(msg.Data)
 		if err != nil {
 			logKV("error", "worker-service", "message parse failed", "message_id", msg.ID, "error", err.Error())
+			msg.Ack()
+			return
+		}
+
+		if event.EventType != "document.uploaded" {
+			logKV("warn", "worker-service", "unexpected event type", "message_id", msg.ID, "event_type", event.EventType)
 			msg.Ack()
 			return
 		}
@@ -73,6 +109,12 @@ func main() {
 			"duration_ms", time.Since(start).Milliseconds(),
 			"result", string(resultPayload),
 		)
+
+		if err := publishProcessedEvent(ctx, pub, result); err != nil {
+			logKV("error", "worker-service", "processed event publish failed", "document_id", result.DocumentID, "error", err.Error())
+			msg.Nack()
+			return
+		}
 		msg.Ack()
 	})
 	if err != nil {
@@ -88,6 +130,40 @@ func parseEvent(data []byte) (Event, error) {
 		return Event{}, err
 	}
 	return event, nil
+}
+
+func buildProcessedEvent(result ProcessingResult) ProcessedEvent {
+	return ProcessedEvent{
+		DocumentID: result.DocumentID,
+		EventType:  "document.processed",
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+func publishProcessedEvent(ctx context.Context, pub publisher, result ProcessingResult) error {
+	if pub == nil {
+		logKV("warn", "worker-service", "processed event publisher unavailable", "document_id", result.DocumentID)
+		return nil
+	}
+
+	event := buildProcessedEvent(result)
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	messageID, err := pub.Publish(ctx, &pubsub.Message{Data: payload}).Get(ctx)
+	if err != nil {
+		return err
+	}
+
+	logKV(
+		"info", "worker-service", "document.processed published",
+		"document_id", event.DocumentID,
+		"event_type", event.EventType,
+		"message_id", messageID,
+	)
+	return nil
 }
 
 func processEvent(event Event) ProcessingResult {

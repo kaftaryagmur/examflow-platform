@@ -10,6 +10,8 @@ GKE_MODE="${GKE_MODE:-autopilot}"
 NAMESPACE="${NAMESPACE:-examflow}"
 VM_NAME="${VM_NAME:-jenkins-server}"
 VM_ZONE="${VM_ZONE:-us-central1-a}"
+START_JENKINS_CONTAINER="${START_JENKINS_CONTAINER:-true}"
+JENKINS_CONTAINER_NAME="${JENKINS_CONTAINER_NAME:-jenkins}"
 K8S_OVERLAY="${K8S_OVERLAY:-k8s/overlays/prod}"
 ENSURE_PUBSUB="${ENSURE_PUBSUB:-true}"
 PUBSUB_TOPIC="${PUBSUB_TOPIC:-document-events}"
@@ -18,7 +20,9 @@ PUBSUB_SUBSCRIPTIONS="${PUBSUB_SUBSCRIPTIONS:-document-events-worker document-ev
 echo "Using project: ${PROJECT_ID}"
 gcloud config set project "${PROJECT_ID}"
 
+VM_EXISTS="false"
 if gcloud compute instances describe "${VM_NAME}" --zone="${VM_ZONE}" >/dev/null 2>&1; then
+  VM_EXISTS="true"
   VM_STATUS="$(gcloud compute instances describe "${VM_NAME}" --zone="${VM_ZONE}" --format='value(status)')"
   if [[ "${VM_STATUS}" != "RUNNING" ]]; then
     echo "Starting VM: ${VM_NAME} (${VM_ZONE})"
@@ -28,6 +32,11 @@ if gcloud compute instances describe "${VM_NAME}" --zone="${VM_ZONE}" >/dev/null
   fi
 else
   echo "VM not found, skipping start: ${VM_NAME} (${VM_ZONE})"
+fi
+
+if [[ "${VM_EXISTS}" == "true" && "${START_JENKINS_CONTAINER}" == "true" ]]; then
+  echo "Ensuring Jenkins container is running: ${JENKINS_CONTAINER_NAME}"
+  gcloud compute ssh "${VM_NAME}" --zone="${VM_ZONE}" --command="if docker ps --format '{{.Names}}' | grep -qx '${JENKINS_CONTAINER_NAME}'; then echo 'Jenkins container already running'; else docker start '${JENKINS_CONTAINER_NAME}'; fi"
 fi
 
 if [[ "${ENSURE_PUBSUB}" == "true" ]]; then

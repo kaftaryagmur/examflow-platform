@@ -30,9 +30,13 @@ type ProcessingResult struct {
 }
 
 type ProcessedEvent struct {
-	DocumentID string `json:"documentId"`
-	EventType  string `json:"eventType"`
-	Timestamp  string `json:"timestamp"`
+	EventID        string `json:"eventId,omitempty"`
+	EventType      string `json:"eventType"`
+	DocumentID     string `json:"documentId"`
+	Status         string `json:"status"`
+	SummaryPreview string `json:"summaryPreview,omitempty"`
+	ProcessedAt    string `json:"processedAt"`
+	Timestamp      string `json:"timestamp"`
 }
 
 type publisher interface {
@@ -55,6 +59,9 @@ func main() {
 	projectID := os.Getenv("GCP_PROJECT_ID")
 	subscriptionID := os.Getenv("PUBSUB_SUBSCRIPTION")
 	processedTopicID := os.Getenv("PUBSUB_PROCESSED_TOPIC")
+	if processedTopicID == "" {
+		processedTopicID = os.Getenv("PUBSUB_TOPIC")
+	}
 
 	ctx := context.Background()
 
@@ -73,6 +80,7 @@ func main() {
 	}
 
 	sub := client.Subscription(subscriptionID)
+
 	var pub publisher
 	if processedTopicID == "" {
 		logKV("warn", "worker-service", "processed topic not configured, publish disabled")
@@ -92,8 +100,13 @@ func main() {
 			return
 		}
 
-		if event.EventType != "document.uploaded" {
-			logKV("warn", "worker-service", "unexpected event type", "message_id", msg.ID, "event_type", event.EventType)
+		if !shouldProcessEvent(event) {
+			logKV(
+				"info", "worker-service", "event ignored",
+				"message_id", msg.ID,
+				"event_type", event.EventType,
+				"document_id", event.DocumentID,
+			)
 			msg.Ack()
 			return
 		}
@@ -111,10 +124,15 @@ func main() {
 		)
 
 		if err := publishProcessedEvent(ctx, pub, result); err != nil {
-			logKV("error", "worker-service", "processed event publish failed", "document_id", result.DocumentID, "error", err.Error())
+			logKV(
+				"error", "worker-service", "processed event publish failed",
+				"document_id", result.DocumentID,
+				"error", err.Error(),
+			)
 			msg.Nack()
 			return
 		}
+
 		msg.Ack()
 	})
 	if err != nil {
@@ -132,40 +150,6 @@ func parseEvent(data []byte) (Event, error) {
 	return event, nil
 }
 
-func buildProcessedEvent(result ProcessingResult) ProcessedEvent {
-	return ProcessedEvent{
-		DocumentID: result.DocumentID,
-		EventType:  "document.processed",
-		Timestamp:  time.Now().UTC().Format(time.RFC3339),
-	}
-}
-
-func publishProcessedEvent(ctx context.Context, pub publisher, result ProcessingResult) error {
-	if pub == nil {
-		logKV("warn", "worker-service", "processed event publisher unavailable", "document_id", result.DocumentID)
-		return nil
-	}
-
-	event := buildProcessedEvent(result)
-	payload, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-
-	messageID, err := pub.Publish(ctx, &pubsub.Message{Data: payload}).Get(ctx)
-	if err != nil {
-		return err
-	}
-
-	logKV(
-		"info", "worker-service", "document.processed published",
-		"document_id", event.DocumentID,
-		"event_type", event.EventType,
-		"message_id", messageID,
-	)
-	return nil
-}
-
 func processEvent(event Event) ProcessingResult {
 	fileName := strings.TrimSpace(event.FileName)
 	if fileName == "" {
@@ -178,6 +162,63 @@ func processEvent(event Event) ProcessingResult {
 		SummaryPreview: "Processed document " + event.DocumentID + " from " + fileName,
 		ProcessedAt:    time.Now().UTC().Format(time.RFC3339),
 	}
+}
+
+func shouldProcessEvent(event Event) bool {
+	eventType := strings.ToLower(strings.TrimSpace(event.EventType))
+	switch eventType {
+	case "document.processed", "exam.validation.completed", "document.validated":
+		return false
+	default:
+		return true
+	}
+}
+
+func buildProcessedEvent(result ProcessingResult) ProcessedEvent {
+	now := time.Now().UTC()
+
+	return ProcessedEvent{
+		EventID:        fmt.Sprintf("processing-%s-%d", result.DocumentID, now.UnixNano()),
+		EventType:      "document.processed",
+		DocumentID:     result.DocumentID,
+		Status:         result.Status,
+		SummaryPreview: result.SummaryPreview,
+		ProcessedAt:    result.ProcessedAt,
+		Timestamp:      now.Format(time.RFC3339),
+	}
+}
+
+func publishProcessedEvent(ctx context.Context, pub publisher, result ProcessingResult) error {
+	if pub == nil {
+		logKV(
+			"warn", "worker-service", "processed event publisher unavailable",
+			"document_id", result.DocumentID,
+		)
+		return nil
+	}
+
+	event := buildProcessedEvent(result)
+
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	messageID, err := pub.Publish(ctx, &pubsub.Message{Data: payload}).Get(ctx)
+	if err != nil {
+		return err
+	}
+
+	logKV(
+		"info", "worker-service", "document.processed published",
+		"event_id", event.EventID,
+		"event_type", event.EventType,
+		"document_id", event.DocumentID,
+		"status", event.Status,
+		"message_id", messageID,
+	)
+
+	return nil
 }
 
 func logKV(level, service, msg string, keyvals ...any) {

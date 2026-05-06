@@ -14,6 +14,10 @@ import (
 	"time"
 
 	"cloud.google.com/go/pubsub"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 type Event struct {
@@ -38,10 +42,12 @@ type PublishResponse struct {
 }
 
 type StatusResponse struct {
-	Status    string `json:"status"`
-	Service   string `json:"service"`
-	Mode      string `json:"mode"`
-	Timestamp string `json:"timestamp"`
+	Status         string `json:"status"`
+	Service        string `json:"service"`
+	Mode           string `json:"mode"`
+	DatabaseStatus string `json:"databaseStatus,omitempty"`
+	DatabaseName   string `json:"databaseName,omitempty"`
+	Timestamp      string `json:"timestamp"`
 }
 
 type publisher interface {
@@ -54,6 +60,24 @@ type publishResult interface {
 
 type topicPublisher struct {
 	topic *pubsub.Topic
+}
+
+type mongoDBConfig struct {
+	URI      string
+	Database string
+}
+
+type databaseClient interface {
+	Name() string
+	Ping(context.Context) error
+	VerifyReadWrite(context.Context, string) error
+	Close(context.Context) error
+}
+
+type mongoDatabaseClient struct {
+	client   *mongo.Client
+	database *mongo.Database
+	name     string
 }
 
 func (t topicPublisher) Publish(ctx context.Context, msg *pubsub.Message) publishResult {
@@ -85,13 +109,25 @@ func main() {
 		logKV("info", "api-service", "missing pubsub configuration, running in mock mode")
 	}
 
-	handler := newServer(ctx, pub, mode)
+	db, err := connectMongoDB(ctx)
+	if err != nil {
+		logKV("warn", "api-service", "mongodb connection unavailable", "error", err.Error())
+	} else {
+		defer db.Close(ctx)
+		if err := db.VerifyReadWrite(ctx, "api-service"); err != nil {
+			logKV("warn", "api-service", "mongodb startup read/write check failed", "database", db.Name(), "error", err.Error())
+		} else {
+			logKV("info", "api-service", "mongodb connection ready", "database", db.Name())
+		}
+	}
+
+	handler := newServer(ctx, pub, mode, db)
 
 	logKV("info", "api-service", "listening", "port", port, "mode", mode)
 	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
 
-func newServer(ctx context.Context, pub publisher, mode string) http.Handler {
+func newServer(ctx context.Context, pub publisher, mode string, db databaseClient) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -106,14 +142,27 @@ func newServer(ctx context.Context, pub publisher, mode string) http.Handler {
 	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusOK
 		body := StatusResponse{
-			Status:    "ready",
-			Service:   "api-service",
-			Mode:      mode,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Status:         "ready",
+			Service:        "api-service",
+			Mode:           mode,
+			DatabaseStatus: "not_configured",
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
 		}
 		if pub == nil {
 			status = http.StatusAccepted
 			body.Status = "degraded"
+		}
+
+		if db != nil {
+			body.DatabaseName = db.Name()
+			if err := db.Ping(r.Context()); err != nil {
+				status = http.StatusServiceUnavailable
+				body.Status = "degraded"
+				body.DatabaseStatus = "unreachable"
+				logKV("warn", "api-service", "mongodb readiness check failed", "database", db.Name(), "error", err.Error())
+			} else {
+				body.DatabaseStatus = "ready"
+			}
 		}
 		writeJSON(w, status, body)
 	})
@@ -205,6 +254,94 @@ func buildEvent(req PublishRequest) Event {
 		Source:     strings.TrimSpace(req.Source),
 		Timestamp:  time.Now().UTC().Format(time.RFC3339),
 	}
+}
+
+func loadMongoDBConfig() (mongoDBConfig, bool) {
+	uri := strings.TrimSpace(os.Getenv("MONGODB_URI"))
+	if uri == "" {
+		return mongoDBConfig{}, false
+	}
+
+	database := strings.TrimSpace(os.Getenv("MONGODB_DATABASE"))
+	if database == "" {
+		database = "examflow"
+	}
+
+	return mongoDBConfig{
+		URI:      uri,
+		Database: database,
+	}, true
+}
+
+func connectMongoDB(ctx context.Context) (databaseClient, error) {
+	config, ok := loadMongoDBConfig()
+	if !ok {
+		return nil, nil
+	}
+
+	client, err := mongo.Connect(options.Client().ApplyURI(config.URI))
+	if err != nil {
+		return nil, err
+	}
+
+	db := &mongoDatabaseClient{
+		client:   client,
+		database: client.Database(config.Database),
+		name:     config.Database,
+	}
+
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := db.Ping(pingCtx); err != nil {
+		_ = db.Close(context.Background())
+		return nil, err
+	}
+
+	return db, nil
+}
+
+func (db *mongoDatabaseClient) Name() string {
+	return db.name
+}
+
+func (db *mongoDatabaseClient) Ping(ctx context.Context) error {
+	pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	return db.client.Ping(pingCtx, readpref.Primary())
+}
+
+func (db *mongoDatabaseClient) VerifyReadWrite(ctx context.Context, service string) error {
+	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	id := bson.NewObjectID()
+	collection := db.database.Collection("connection_checks")
+	document := bson.M{
+		"_id":       id,
+		"service":   service,
+		"checkedAt": time.Now().UTC(),
+	}
+
+	if _, err := collection.InsertOne(checkCtx, document); err != nil {
+		return err
+	}
+
+	var stored struct {
+		ID bson.ObjectID `bson:"_id"`
+	}
+	if err := collection.FindOne(checkCtx, bson.M{"_id": id}).Decode(&stored); err != nil {
+		return err
+	}
+	if stored.ID != id {
+		return fmt.Errorf("mongodb read/write check returned unexpected id")
+	}
+	return nil
+}
+
+func (db *mongoDatabaseClient) Close(ctx context.Context) error {
+	closeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return db.client.Disconnect(closeCtx)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

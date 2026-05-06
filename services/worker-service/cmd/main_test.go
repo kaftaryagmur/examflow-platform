@@ -72,24 +72,23 @@ func TestBuildProcessedEventReturnsExpectedFields(t *testing.T) {
 	}
 }
 
-func TestShouldProcessEventSkipsDownstreamEvents(t *testing.T) {
-	skipped := []string{
+func TestShouldProcessEventIgnoresDownstreamEvents(t *testing.T) {
+	ignored := []string{
 		"document.processed",
 		"exam.validation.completed",
 		"document.validated",
 	}
 
-	for _, eventType := range skipped {
+	for _, eventType := range ignored {
 		if shouldProcessEvent(Event{EventType: eventType}) {
-			t.Fatalf("expected %s to be skipped", eventType)
+			t.Fatalf("expected %s to be ignored", eventType)
 		}
 	}
 }
 
-func TestShouldProcessEventAllowsInitialDocumentEvents(t *testing.T) {
+func TestShouldProcessEventAllowsSourceEvents(t *testing.T) {
 	allowed := []string{
 		"document.uploaded",
-		"document.created",
 		"document.received",
 		"",
 	}
@@ -111,9 +110,8 @@ func TestPublishProcessedEventPublishesPayload(t *testing.T) {
 		ProcessedAt:    "2026-05-02T12:30:00Z",
 	}
 
-	err := publishProcessedEvent(context.Background(), pub, result)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err := publishProcessedEvent(context.Background(), pub, result); err != nil {
+		t.Fatalf("expected no error, got %v", err)
 	}
 
 	if !bytes.Contains(pub.lastPayload, []byte(`"eventType":"document.processed"`)) {

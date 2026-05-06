@@ -1,7 +1,12 @@
 resources:
   - namespace.yaml
+  - serviceaccount.yaml
   - configmap.yaml
   - app-secret.yaml
+
+  - mongodb-pvc.yaml
+  - mongodb-deployment.yaml
+  - mongodb-service.yaml
 
   - api-deployment.yaml
   - api-service.yaml

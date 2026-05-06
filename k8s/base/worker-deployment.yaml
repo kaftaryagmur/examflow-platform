@@ -29,6 +29,11 @@ spec:
                 configMapKeyRef:
                   name: examflow-config
                   key: PUBSUB_SUBSCRIPTION
+            - name: PUBSUB_PROCESSED_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: examflow-config
+                  key: PUBSUB_PROCESSED_TOPIC
             - name: PUBSUB_TOPIC
               valueFrom:
                 configMapKeyRef:
@@ -39,6 +44,33 @@ spec:
                 secretKeyRef:
                   name: examflow-secret
                   key: APP_ENV
+            - name: MONGODB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: examflow-config
+                  key: MONGODB_HOST
+            - name: MONGODB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: examflow-config
+                  key: MONGODB_PORT
+            - name: MONGODB_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: examflow-config
+                  key: MONGODB_DATABASE
+            - name: MONGODB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: examflow-secret
+                  key: MONGODB_USERNAME
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: examflow-secret
+                  key: MONGODB_PASSWORD
+            - name: MONGODB_URI
+              value: "mongodb://$(MONGODB_USERNAME):$(MONGODB_PASSWORD)@$(MONGODB_HOST):$(MONGODB_PORT)/$(MONGODB_DATABASE)?authSource=admin"
           resources:
             requests:
               cpu: "250m"

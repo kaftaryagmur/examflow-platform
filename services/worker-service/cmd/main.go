@@ -58,7 +58,10 @@ func (t topicPublisher) Publish(ctx context.Context, msg *pubsub.Message) publis
 func main() {
 	projectID := os.Getenv("GCP_PROJECT_ID")
 	subscriptionID := os.Getenv("PUBSUB_SUBSCRIPTION")
-	topicID := os.Getenv("PUBSUB_TOPIC")
+	processedTopicID := os.Getenv("PUBSUB_PROCESSED_TOPIC")
+	if processedTopicID == "" {
+		processedTopicID = os.Getenv("PUBSUB_TOPIC")
+	}
 
 	ctx := context.Background()
 
@@ -79,10 +82,10 @@ func main() {
 	sub := client.Subscription(subscriptionID)
 
 	var pub publisher
-	if topicID == "" {
+	if processedTopicID == "" {
 		logKV("warn", "worker-service", "processed topic not configured, publish disabled")
 	} else {
-		pub = topicPublisher{topic: client.Topic(topicID)}
+		pub = topicPublisher{topic: client.Topic(processedTopicID)}
 	}
 
 	logKV("info", "worker-service", "listening for messages", "subscription", subscriptionID)

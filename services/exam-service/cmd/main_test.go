@@ -91,10 +91,13 @@ func TestParseValidatedEventRequiresValidationResult(t *testing.T) {
 }
 
 func TestBuildExamReturnsExpectedFields(t *testing.T) {
-	exam := buildExam(validatedEvent{
+	exam, err := buildExam(validatedEvent{
 		DocumentID:       "doc-123",
 		ValidationResult: "valid",
 	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
 
 	if exam.DocumentID != "doc-123" {
 		t.Fatalf("expected doc-123, got %q", exam.DocumentID)
@@ -102,46 +105,89 @@ func TestBuildExamReturnsExpectedFields(t *testing.T) {
 	if exam.ValidationResult != "valid" {
 		t.Fatalf("expected valid, got %q", exam.ValidationResult)
 	}
-	if exam.Status != examStatusReady {
-		t.Fatalf("expected %s, got %q", examStatusReady, exam.Status)
+	if exam.Status != examStatusValidated {
+		t.Fatalf("expected %s, got %q", examStatusValidated, exam.Status)
 	}
 	if exam.CreatedAt == "" {
 		t.Fatal("expected createdAt to be populated")
 	}
 }
 
-func TestResolveExamStatusReturnsReadyForValid(t *testing.T) {
-	status := resolveExamStatus("valid")
+func TestResolveExamLifecycleStatusReturnsValidatedForValid(t *testing.T) {
+	status, err := resolveExamLifecycleStatus("valid")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
 
-	if status != examStatusReady {
-		t.Fatalf("expected %s, got %q", examStatusReady, status)
+	if status != examStatusValidated {
+		t.Fatalf("expected %s, got %q", examStatusValidated, status)
 	}
 }
 
-func TestResolveExamStatusReturnsFailedForInvalid(t *testing.T) {
-	status := resolveExamStatus("invalid")
+func TestResolveExamLifecycleStatusReturnsFailedForInvalid(t *testing.T) {
+	status, err := resolveExamLifecycleStatus("invalid")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
 
 	if status != examStatusFailed {
 		t.Fatalf("expected %s, got %q", examStatusFailed, status)
 	}
 }
 
-func TestResolveExamStatusReturnsCreatedForUnknownValue(t *testing.T) {
-	status := resolveExamStatus("pending")
+func TestResolveExamLifecycleStatusRejectsUnknownValue(t *testing.T) {
+	_, err := resolveExamLifecycleStatus("pending")
 
-	if status != examStatusCreated {
-		t.Fatalf("expected %s, got %q", examStatusCreated, status)
+	if err == nil {
+		t.Fatal("expected validation result error")
 	}
 }
 
 func TestBuildExamReturnsFailedStatusForInvalidResult(t *testing.T) {
-	exam := buildExam(validatedEvent{
+	exam, err := buildExam(validatedEvent{
 		DocumentID:       "doc-999",
 		ValidationResult: "invalid",
 	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
 
 	if exam.Status != examStatusFailed {
 		t.Fatalf("expected %s, got %q", examStatusFailed, exam.Status)
+	}
+}
+
+func TestTransitionExamStatusAllowsValidTransitions(t *testing.T) {
+	status, err := transitionExamStatus(examStatusDraft, examStatusProcessing)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if status != examStatusProcessing {
+		t.Fatalf("expected %s, got %q", examStatusProcessing, status)
+	}
+
+	status, err = transitionExamStatus(examStatusProcessing, examStatusValidated)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if status != examStatusValidated {
+		t.Fatalf("expected %s, got %q", examStatusValidated, status)
+	}
+
+	status, err = transitionExamStatus(examStatusValidated, examStatusPublished)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if status != examStatusPublished {
+		t.Fatalf("expected %s, got %q", examStatusPublished, status)
+	}
+}
+
+func TestTransitionExamStatusRejectsInvalidTransition(t *testing.T) {
+	_, err := transitionExamStatus(examStatusDraft, examStatusPublished)
+
+	if err == nil {
+		t.Fatal("expected invalid transition error")
 	}
 }
 

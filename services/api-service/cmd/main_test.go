@@ -460,3 +460,18 @@ func TestAuthMeReturnsAuthenticatedUser(t *testing.T) {
 		t.Fatalf("expected user email in response, got %s", rec.Body.String())
 	}
 }
+
+func TestBuildEventAddsEventID(t *testing.T) {
+	event := buildEvent(PublishRequest{
+		DocumentID: "doc-69",
+		FileName:   "observability.pdf",
+		Source:     "test",
+	}, "user-69")
+
+	if event.EventID == "" {
+		t.Fatal("expected eventId to be populated")
+	}
+	if event.DocumentID != "doc-69" {
+		t.Fatalf("expected documentId doc-69, got %q", event.DocumentID)
+	}
+}

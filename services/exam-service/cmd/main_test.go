@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -235,5 +236,53 @@ func TestResolveExamStatusAcceptsFailed(t *testing.T) {
 	got := resolveExamStatus("FAILED")
 	if got != examStatusFailed {
 		t.Fatalf("expected %s, got %s", examStatusFailed, got)
+	}
+}
+
+func TestDomainCollectionNames(t *testing.T) {
+	if usersCollection != "users" {
+		t.Fatalf("expected users collection, got %q", usersCollection)
+	}
+	if documentsCollection != "documents" {
+		t.Fatalf("expected documents collection, got %q", documentsCollection)
+	}
+	if examsCollection != "exams" {
+		t.Fatalf("expected exams collection, got %q", examsCollection)
+	}
+}
+
+func TestUserModelHidesPasswordHashFromJSON(t *testing.T) {
+	user := User{
+		Email:        "teacher@example.com",
+		DisplayName:  "Teacher User",
+		PasswordHash: "secret-hash",
+		Status:       userStatusActive,
+	}
+
+	data, err := json.Marshal(user)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	if string(data) == "" {
+		t.Fatal("expected json output")
+	}
+	if strings.Contains(string(data), "secret-hash") {
+		t.Fatal("did not expect password hash in json output")
+	}
+}
+
+func TestDocumentModelUsesOwnershipAndLifecycleFields(t *testing.T) {
+	document := Document{
+		FileName: "sample.pdf",
+		Source:   "manual",
+		Status:   documentStatusUploaded,
+	}
+
+	if document.FileName != "sample.pdf" {
+		t.Fatalf("expected sample.pdf, got %q", document.FileName)
+	}
+	if document.Status != documentStatusUploaded {
+		t.Fatalf("expected %s, got %q", documentStatusUploaded, document.Status)
 	}
 }

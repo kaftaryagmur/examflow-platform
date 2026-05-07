@@ -80,6 +80,15 @@ type mongoDatabaseClient struct {
 	name     string
 }
 
+type userStore interface {
+	CreateUser(context.Context, User) (User, error)
+	FindUserByEmail(context.Context, string) (User, error)
+}
+
+type mongoUserStore struct {
+	collection *mongo.Collection
+}
+
 func (t topicPublisher) Publish(ctx context.Context, msg *pubsub.Message) publishResult {
 	return t.topic.Publish(ctx, msg)
 }
@@ -109,6 +118,7 @@ func main() {
 		logKV("info", "api-service", "missing pubsub configuration, running in mock mode")
 	}
 
+	var users userStore
 	db, err := connectMongoDB(ctx)
 	if err != nil {
 		logKV("warn", "api-service", "mongodb connection unavailable", "error", err.Error())
@@ -119,15 +129,21 @@ func main() {
 		} else {
 			logKV("info", "api-service", "mongodb connection ready", "database", db.Name())
 		}
+		if mongoDB, ok := db.(*mongoDatabaseClient); ok {
+			users = mongoUserStore{collection: mongoDB.database.Collection(usersCollection)}
+			if err := ensureUserIndexes(ctx, users); err != nil {
+				logKV("warn", "api-service", "mongodb user index setup failed", "database", db.Name(), "error", err.Error())
+			}
+		}
 	}
 
-	handler := newServer(ctx, pub, mode, db)
+	handler := newServer(ctx, pub, mode, db, users)
 
 	logKV("info", "api-service", "listening", "port", port, "mode", mode)
 	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
 
-func newServer(ctx context.Context, pub publisher, mode string, db databaseClient) http.Handler {
+func newServer(ctx context.Context, pub publisher, mode string, db databaseClient, users userStore) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -221,6 +237,73 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			MessageID: messageID,
 			Mode:      mode,
 			Event:     event,
+		})
+	})
+
+	mux.HandleFunc("/auth/register", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if users == nil {
+			http.Error(w, "auth store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		req, err := decodeRegisterRequest(r)
+		if err != nil {
+			logKV("warn", "api-service", "invalid auth request", "endpoint", "/auth/register", "error", err.Error())
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		user, err := registerUser(r.Context(), users, req)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, errUserAlreadyExists) {
+				status = http.StatusConflict
+			}
+			logKV("warn", "api-service", "register failed", "endpoint", "/auth/register", "email", normalizeEmail(req.Email), "error", err.Error())
+			http.Error(w, err.Error(), status)
+			return
+		}
+
+		logKV("info", "api-service", "user registered", "endpoint", "/auth/register", "user_id", user.ID.Hex(), "email", user.Email)
+		writeJSON(w, http.StatusCreated, authResponse{
+			Status: "registered",
+			User:   userResponseFromUser(user),
+		})
+	})
+
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if users == nil {
+			http.Error(w, "auth store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		req, err := decodeLoginRequest(r)
+		if err != nil {
+			logKV("warn", "api-service", "invalid auth request", "endpoint", "/auth/login", "error", err.Error())
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		user, token, err := loginUser(r.Context(), users, req)
+		if err != nil {
+			logKV("warn", "api-service", "login failed", "endpoint", "/auth/login", "email", normalizeEmail(req.Email), "error", err.Error())
+			http.Error(w, "invalid credentials", http.StatusUnauthorized)
+			return
+		}
+
+		logKV("info", "api-service", "user logged in", "endpoint", "/auth/login", "user_id", user.ID.Hex(), "email", user.Email)
+		writeJSON(w, http.StatusOK, authResponse{
+			Status: "authenticated",
+			Token:  token,
+			User:   userResponseFromUser(user),
 		})
 	})
 
@@ -342,6 +425,54 @@ func (db *mongoDatabaseClient) Close(ctx context.Context) error {
 	closeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	return db.client.Disconnect(closeCtx)
+}
+
+func (store mongoUserStore) CreateUser(ctx context.Context, user User) (User, error) {
+	saveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if user.ID.IsZero() {
+		user.ID = bson.NewObjectID()
+	}
+	_, err := store.collection.InsertOne(saveCtx, user)
+	if mongo.IsDuplicateKeyError(err) {
+		return User{}, errUserAlreadyExists
+	}
+	if err != nil {
+		return User{}, err
+	}
+	return user, nil
+}
+
+func (store mongoUserStore) FindUserByEmail(ctx context.Context, email string) (User, error) {
+	findCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var user User
+	err := store.collection.FindOne(findCtx, bson.M{"email": normalizeEmail(email)}).Decode(&user)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return User{}, errUserNotFound
+	}
+	if err != nil {
+		return User{}, err
+	}
+	return user, nil
+}
+
+func ensureUserIndexes(ctx context.Context, users userStore) error {
+	store, ok := users.(mongoUserStore)
+	if !ok {
+		return nil
+	}
+
+	indexCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	_, err := store.collection.Indexes().CreateOne(indexCtx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "email", Value: 1}},
+		Options: options.Index().SetUnique(true).SetName("users_email_unique"),
+	})
+	return err
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

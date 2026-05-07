@@ -154,7 +154,7 @@ func handleValidatedMessage(msg examMessage) {
 	}
 
 	if event.EventType != "exam.validation.completed" {
-		logKV("warn", "exam-service", "unexpected event type", "message_id", msg.ID(), "event_type", event.EventType)
+		logKV("warn", "exam-service", "unexpected event type", "message_id", msg.ID(), "event_id", event.EventID, "event_type", event.EventType)
 		msg.Ack()
 		return
 	}
@@ -162,6 +162,7 @@ func handleValidatedMessage(msg examMessage) {
 	logKV(
 		"info", "exam-service", "validation result received",
 		"message_id", msg.ID(),
+		"event_id", event.EventID,
 		"document_id", event.DocumentID,
 		"event_type", event.EventType,
 		"validation_result", event.ValidationResult,
@@ -169,19 +170,20 @@ func handleValidatedMessage(msg examMessage) {
 
 	exam, err := buildExam(event)
 	if err != nil {
-		logKV("error", "exam-service", "exam lifecycle transition failed", "message_id", msg.ID(), "document_id", event.DocumentID, "error", err.Error())
+		logKV("error", "exam-service", "exam lifecycle transition failed", "message_id", msg.ID(), "event_id", event.EventID, "document_id", event.DocumentID, "error", err.Error())
 		msg.Nack()
 		return
 	}
 
 	if err := exams.Save(context.Background(), exam); err != nil {
-		logKV("error", "exam-service", "exam persistence failed", "message_id", msg.ID(), "document_id", exam.DocumentID, "error", err.Error())
+		logKV("error", "exam-service", "exam persistence failed", "message_id", msg.ID(), "event_id", event.EventID, "document_id", exam.DocumentID, "error", err.Error())
 		msg.Nack()
 		return
 	}
 
 	logKV(
 		"info", "exam-service", "exam state updated",
+		"event_id", event.EventID,
 		"document_id", exam.DocumentID,
 		"validation_result", exam.ValidationResult,
 		"state", exam.Status,

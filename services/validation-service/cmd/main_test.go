@@ -218,3 +218,19 @@ func TestPublishValidatedEventReturnsPublishError(t *testing.T) {
 		t.Fatal("expected publish error")
 	}
 }
+
+func TestBuildValidatedEventPreservesEventID(t *testing.T) {
+	event := buildValidatedEvent(validationResult{
+		EventID:    "evt-trace-69",
+		DocumentID: "doc-69",
+		UserID:     "user-69",
+		Status:     "valid",
+	})
+
+	if event.EventID != "evt-trace-69" {
+		t.Fatalf("expected eventId to be preserved, got %q", event.EventID)
+	}
+	if event.DocumentID != "doc-69" {
+		t.Fatalf("expected documentId doc-69, got %q", event.DocumentID)
+	}
+}

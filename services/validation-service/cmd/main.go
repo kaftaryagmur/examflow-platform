@@ -24,6 +24,7 @@ type healthResponse struct {
 }
 
 type processedEvent struct {
+	EventID    string `json:"eventId,omitempty"`
 	DocumentID string `json:"documentId"`
 	UserID     string `json:"userId"`
 	EventType  string `json:"eventType"`
@@ -31,6 +32,7 @@ type processedEvent struct {
 }
 
 type validationResult struct {
+	EventID    string
 	DocumentID string
 	UserID     string
 	Status     string
@@ -147,16 +149,17 @@ func startConsumer(ctx context.Context, projectID, subscriptionID, validatedTopi
 		logKV(
 			"info", "validation-service", "document.processed received",
 			"message_id", msg.ID,
+			"event_id", event.EventID,
 			"document_id", event.DocumentID,
 			"event_type", event.EventType,
 			"timestamp", event.Timestamp,
 		)
 
 		result := validateDocument(event)
-		logKV("info", "validation-service", "validation completed", "validation_result", result.Status, "document_id", result.DocumentID)
+		logKV("info", "validation-service", "validation completed", "event_id", result.EventID, "validation_result", result.Status, "document_id", result.DocumentID)
 
 		if err := publishValidatedEvent(ctx, pub, result); err != nil {
-			logKV("error", "validation-service", "validated event publish failed", "document_id", result.DocumentID, "error", err.Error())
+			logKV("error", "validation-service", "validated event publish failed", "event_id", result.EventID, "document_id", result.DocumentID, "error", err.Error())
 			msg.Nack()
 			return
 		}
@@ -173,6 +176,7 @@ func parseProcessedEvent(data []byte) (processedEvent, error) {
 		return processedEvent{}, err
 	}
 
+	event.EventID = strings.TrimSpace(event.EventID)
 	event.DocumentID = strings.TrimSpace(event.DocumentID)
 	event.UserID = strings.TrimSpace(event.UserID)
 	event.EventType = strings.TrimSpace(event.EventType)
@@ -195,6 +199,7 @@ func validateDocument(event processedEvent) validationResult {
 	}
 
 	return validationResult{
+		EventID:    event.EventID,
 		DocumentID: event.DocumentID,
 		UserID:     event.UserID,
 		Status:     status,
@@ -203,7 +208,7 @@ func validateDocument(event processedEvent) validationResult {
 
 func publishValidatedEvent(ctx context.Context, pub publisher, result validationResult) error {
 	if pub == nil {
-		logKV("warn", "validation-service", "validated event publisher unavailable", "document_id", result.DocumentID)
+		logKV("warn", "validation-service", "validated event publisher unavailable", "event_id", result.EventID, "document_id", result.DocumentID)
 		return nil
 	}
 
@@ -232,9 +237,13 @@ func publishValidatedEvent(ctx context.Context, pub publisher, result validation
 
 func buildValidatedEvent(result validationResult) validatedEvent {
 	eventTimestamp := time.Now().UTC().Format(time.RFC3339)
+	eventID := strings.TrimSpace(result.EventID)
+	if eventID == "" {
+		eventID = fmt.Sprintf("validation-%s-%d", result.DocumentID, time.Now().UTC().UnixNano())
+	}
 
 	return validatedEvent{
-		EventID:          fmt.Sprintf("validation-%s-%d", result.DocumentID, time.Now().UTC().UnixNano()),
+		EventID:          eventID,
 		DocumentID:       result.DocumentID,
 		UserID:           result.UserID,
 		EventType:        "exam.validation.completed",

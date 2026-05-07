@@ -309,3 +309,17 @@ func TestDocumentModelUsesOwnershipAndLifecycleFields(t *testing.T) {
 		t.Fatalf("expected %s, got %q", documentStatusUploaded, document.Status)
 	}
 }
+
+func TestParseValidatedEventReturnsEventID(t *testing.T) {
+	event, err := parseValidatedEvent([]byte(`{"eventId":"evt-trace-69","documentId":"doc-69","userId":"64b7f8f8f8f8f8f8f8f8f8f8","eventType":"exam.validation.completed","validationResult":"valid","timestamp":"2026-05-07T19:30:00Z"}`))
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if event.EventID != "evt-trace-69" {
+		t.Fatalf("expected eventId to be parsed, got %q", event.EventID)
+	}
+	if event.DocumentID != "doc-69" {
+		t.Fatalf("expected documentId doc-69, got %q", event.DocumentID)
+	}
+}

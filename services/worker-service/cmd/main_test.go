@@ -149,3 +149,21 @@ func TestPublishProcessedEventReturnsPublishError(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestBuildProcessedEventPreservesEventID(t *testing.T) {
+	event := buildProcessedEvent(ProcessingResult{
+		EventID:        "evt-trace-69",
+		DocumentID:     "doc-69",
+		UserID:         "user-69",
+		Status:         "processed",
+		SummaryPreview: "Processed document doc-69",
+		ProcessedAt:    "2026-05-07T19:30:00Z",
+	})
+
+	if event.EventID != "evt-trace-69" {
+		t.Fatalf("expected eventId to be preserved, got %q", event.EventID)
+	}
+	if event.DocumentID != "doc-69" {
+		t.Fatalf("expected documentId doc-69, got %q", event.DocumentID)
+	}
+}

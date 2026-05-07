@@ -17,6 +17,7 @@ func init() {
 }
 
 type Event struct {
+	EventID    string `json:"eventId,omitempty"`
 	EventType  string `json:"eventType"`
 	UserID     string `json:"userId"`
 	DocumentID string `json:"documentId"`
@@ -26,6 +27,7 @@ type Event struct {
 }
 
 type ProcessingResult struct {
+	EventID        string `json:"eventId,omitempty"`
 	DocumentID     string `json:"documentId"`
 	UserID         string `json:"userId"`
 	Status         string `json:"status"`
@@ -109,6 +111,7 @@ func main() {
 			logKV(
 				"info", "worker-service", "event ignored",
 				"message_id", msg.ID,
+				"event_id", event.EventID,
 				"event_type", event.EventType,
 				"document_id", event.DocumentID,
 			)
@@ -117,12 +120,13 @@ func main() {
 		}
 
 		start := time.Now()
-		logKV("info", "worker-service", "processing started", "document_id", event.DocumentID, "event_type", event.EventType, "source", event.Source)
+		logKV("info", "worker-service", "processing started", "event_id", event.EventID, "document_id", event.DocumentID, "event_type", event.EventType, "source", event.Source)
 		result := processEvent(event)
 		resultPayload, _ := json.Marshal(result)
 
 		logKV(
 			"info", "worker-service", "processing completed",
+			"event_id", event.EventID,
 			"document_id", event.DocumentID,
 			"duration_ms", time.Since(start).Milliseconds(),
 			"result", string(resultPayload),
@@ -131,6 +135,7 @@ func main() {
 		if err := publishProcessedEvent(ctx, pub, result); err != nil {
 			logKV(
 				"error", "worker-service", "processed event publish failed",
+				"event_id", result.EventID,
 				"document_id", result.DocumentID,
 				"error", err.Error(),
 			)
@@ -152,6 +157,18 @@ func parseEvent(data []byte) (Event, error) {
 	if err != nil {
 		return Event{}, err
 	}
+
+	event.EventID = strings.TrimSpace(event.EventID)
+	event.EventType = strings.TrimSpace(event.EventType)
+	event.UserID = strings.TrimSpace(event.UserID)
+	event.DocumentID = strings.TrimSpace(event.DocumentID)
+	event.FileName = strings.TrimSpace(event.FileName)
+	event.Source = strings.TrimSpace(event.Source)
+
+	if event.EventID == "" {
+		event.EventID = fmt.Sprintf("upload-%s-%d", event.DocumentID, time.Now().UTC().UnixNano())
+	}
+
 	return event, nil
 }
 
@@ -162,6 +179,7 @@ func processEvent(event Event) ProcessingResult {
 	}
 
 	return ProcessingResult{
+		EventID:        event.EventID,
 		DocumentID:     event.DocumentID,
 		UserID:         strings.TrimSpace(event.UserID),
 		Status:         "processed",
@@ -182,9 +200,13 @@ func shouldProcessEvent(event Event) bool {
 
 func buildProcessedEvent(result ProcessingResult) ProcessedEvent {
 	now := time.Now().UTC()
+	eventID := strings.TrimSpace(result.EventID)
+	if eventID == "" {
+		eventID = fmt.Sprintf("processing-%s-%d", result.DocumentID, now.UnixNano())
+	}
 
 	return ProcessedEvent{
-		EventID:        fmt.Sprintf("processing-%s-%d", result.DocumentID, now.UnixNano()),
+		EventID:        eventID,
 		EventType:      "document.processed",
 		DocumentID:     result.DocumentID,
 		UserID:         result.UserID,
@@ -199,6 +221,7 @@ func publishProcessedEvent(ctx context.Context, pub publisher, result Processing
 	if pub == nil {
 		logKV(
 			"warn", "worker-service", "processed event publisher unavailable",
+			"event_id", result.EventID,
 			"document_id", result.DocumentID,
 		)
 		return nil

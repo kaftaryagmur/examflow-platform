@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/pubsub"
 )
+
+func init() {
+	log.SetFlags(0)
+}
 
 type Event struct {
 	EventType  string `json:"eventType"`
@@ -76,7 +78,7 @@ func main() {
 	client, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
 		logKV("error", "worker-service", "pubsub client error", "error", err.Error())
-		log.Fatal("worker-service failed to start")
+		os.Exit(1)
 	}
 
 	sub := client.Subscription(subscriptionID)
@@ -137,7 +139,7 @@ func main() {
 	})
 	if err != nil {
 		logKV("error", "worker-service", "receive error", "error", err.Error())
-		log.Fatal("worker-service stopped")
+		os.Exit(1)
 	}
 }
 
@@ -222,39 +224,26 @@ func publishProcessedEvent(ctx context.Context, pub publisher, result Processing
 }
 
 func logKV(level, service, msg string, keyvals ...any) {
-	fields := map[string]string{
-		"level":   level,
-		"service": service,
-		"msg":     msg,
+	fields := map[string]any{
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"level":     strings.ToUpper(level),
+		"service":   service,
+		"message":   msg,
 	}
 
 	for i := 0; i+1 < len(keyvals); i += 2 {
-		key := fmt.Sprint(keyvals[i])
-		fields[key] = valueToString(keyvals[i+1])
+		key := strings.TrimSpace(fmt.Sprint(keyvals[i]))
+		if key == "" {
+			continue
+		}
+		fields[key] = keyvals[i+1]
 	}
 
-	keys := make([]string, 0, len(fields))
-	for key := range fields {
-		keys = append(keys, key)
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		log.Printf(`{"timestamp":%q,"level":"ERROR","service":%q,"message":"log serialization failed","error":%q}`, time.Now().UTC().Format(time.RFC3339), service, err.Error())
+		return
 	}
-	sort.Strings(keys)
 
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%q", key, fields[key]))
-	}
-	log.Println(strings.Join(parts, " "))
-}
-
-func valueToString(v any) string {
-	switch value := v.(type) {
-	case string:
-		return value
-	case int:
-		return strconv.Itoa(value)
-	case int64:
-		return strconv.FormatInt(value, 10)
-	default:
-		return fmt.Sprint(value)
-	}
+	log.Println(string(encoded))
 }

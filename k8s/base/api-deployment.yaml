@@ -41,6 +41,11 @@ spec:
                 secretKeyRef:
                   name: examflow-secret
                   key: APP_ENV
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: examflow-secret
+                  key: JWT_SECRET
             - name: MONGODB_HOST
               valueFrom:
                 configMapKeyRef:

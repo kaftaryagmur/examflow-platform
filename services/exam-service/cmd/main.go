@@ -7,8 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +16,10 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
+
+func init() {
+	log.SetFlags(0)
+}
 
 type healthResponse struct {
 	Status    string `json:"status"`
@@ -87,8 +89,11 @@ func main() {
 	handler := newServer()
 	go startConsumer(context.Background(), projectID, subscriptionID)
 
-	log.Printf("service=%q msg=%q port=%q", "exam-service", "listening", port)
-	log.Fatal(http.ListenAndServe(":"+port, handler))
+	logKV("info", "exam-service", "listening", "port", port)
+	if err := http.ListenAndServe(":"+port, handler); err != nil {
+		logKV("error", "exam-service", "http server stopped", "error", err.Error())
+		os.Exit(1)
+	}
 }
 
 func newServer() http.Handler {
@@ -329,39 +334,26 @@ func transitionExamStatus(current, next string) (string, error) {
 }
 
 func logKV(level, service, msg string, keyvals ...any) {
-	fields := map[string]string{
-		"level":   level,
-		"service": service,
-		"msg":     msg,
+	fields := map[string]any{
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"level":     strings.ToUpper(level),
+		"service":   service,
+		"message":   msg,
 	}
 
 	for i := 0; i+1 < len(keyvals); i += 2 {
-		key := fmt.Sprint(keyvals[i])
-		fields[key] = valueToString(keyvals[i+1])
+		key := strings.TrimSpace(fmt.Sprint(keyvals[i]))
+		if key == "" {
+			continue
+		}
+		fields[key] = keyvals[i+1]
 	}
 
-	keys := make([]string, 0, len(fields))
-	for key := range fields {
-		keys = append(keys, key)
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		log.Printf(`{"timestamp":%q,"level":"ERROR","service":%q,"message":"log serialization failed","error":%q}`, time.Now().UTC().Format(time.RFC3339), service, err.Error())
+		return
 	}
-	sort.Strings(keys)
 
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%q", key, fields[key]))
-	}
-	log.Println(strings.Join(parts, " "))
-}
-
-func valueToString(v any) string {
-	switch value := v.(type) {
-	case string:
-		return value
-	case int:
-		return strconv.Itoa(value)
-	case int64:
-		return strconv.FormatInt(value, 10)
-	default:
-		return fmt.Sprint(value)
-	}
+	log.Println(string(encoded))
 }

@@ -90,6 +90,14 @@ type mongoUserStore struct {
 	collection *mongo.Collection
 }
 
+type documentStore interface {
+	CreateDocument(context.Context, Document) (Document, error)
+}
+
+type mongoDocumentStore struct {
+	collection *mongo.Collection
+}
+
 func (t topicPublisher) Publish(ctx context.Context, msg *pubsub.Message) publishResult {
 	return t.topic.Publish(ctx, msg)
 }
@@ -121,6 +129,7 @@ func main() {
 	}
 
 	var users userStore
+	var documents documentStore
 	db, err := connectMongoDB(ctx)
 	if err != nil {
 		logKV("warn", "api-service", "mongodb connection unavailable", "error", err.Error())
@@ -133,6 +142,7 @@ func main() {
 		}
 		if mongoDB, ok := db.(*mongoDatabaseClient); ok {
 			users = mongoUserStore{collection: mongoDB.database.Collection(usersCollection)}
+			documents = mongoDocumentStore{collection: mongoDB.database.Collection(documentsCollection)}
 			if err := ensureUserIndexes(ctx, users); err != nil {
 				logKV("warn", "api-service", "mongodb user index setup failed", "database", db.Name(), "error", err.Error())
 			}
@@ -144,13 +154,13 @@ func main() {
 		logKV("warn", "api-service", "jwt secret not configured, auth endpoints degraded")
 	}
 
-	handler := newServer(ctx, pub, mode, db, users, auth, authConfigured)
+	handler := newServer(ctx, pub, mode, db, users, documents, auth, authConfigured)
 
 	logKV("info", "api-service", "listening", "port", port, "mode", mode)
 	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
 
-func newServer(ctx context.Context, pub publisher, mode string, db databaseClient, users userStore, auth authService, authConfigured bool) http.Handler {
+func newServer(ctx context.Context, pub publisher, mode string, db databaseClient, users userStore, documents documentStore, auth authService, authConfigured bool) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -200,6 +210,10 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			http.Error(w, "auth context unavailable", http.StatusUnauthorized)
 			return
 		}
+		if documents == nil {
+			http.Error(w, "document store unavailable", http.StatusServiceUnavailable)
+			return
+		}
 
 		req, err := decodePublishRequest(r)
 		if err != nil {
@@ -209,6 +223,18 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 		}
 
 		event := buildEvent(req, claims.UserID)
+		document, err := buildDocumentRecord(req, claims.UserID)
+		if err != nil {
+			logKV("warn", "api-service", "document ownership validation failed", "endpoint", "/publish", "error", err.Error())
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if _, err := documents.CreateDocument(r.Context(), document); err != nil {
+			logKV("error", "api-service", "document persistence failed", "endpoint", "/publish", "document_id", event.DocumentID, "user_id", event.UserID, "error", err.Error())
+			http.Error(w, "document persistence failed", http.StatusInternalServerError)
+			return
+		}
+
 		logKV(
 			"info", "api-service", "request received",
 			"endpoint", "/publish",
@@ -508,6 +534,20 @@ func (store mongoUserStore) FindUserByEmail(ctx context.Context, email string) (
 		return User{}, err
 	}
 	return user, nil
+}
+
+func (store mongoDocumentStore) CreateDocument(ctx context.Context, document Document) (Document, error) {
+	saveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if document.ID.IsZero() {
+		document.ID = bson.NewObjectID()
+	}
+	_, err := store.collection.InsertOne(saveCtx, document)
+	if err != nil {
+		return Document{}, err
+	}
+	return document, nil
 }
 
 func ensureUserIndexes(ctx context.Context, users userStore) error {

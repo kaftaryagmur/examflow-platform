@@ -122,6 +122,8 @@ Detayli alan listesi ve iliski notlari [docs/data-models.md](docs/data-models.md
 
 SCRUM-32 kapsaminda `/publish` endpoint'i protected hale getirilir. JWT icindeki `userId`, `document.uploaded` event'ine eklenir ve worker/validation zinciri boyunca korunarak exam-service tarafinda `exams.userId` alanina yazilir.
 
+SCRUM-34 kapsaminda `/publish`, event yayinlamadan once MongoDB `documents` collection'inda `uploaded` durumunda kullaniciya ait bir dokuman kaydi olusturur. Bu sayede dokuman archive ekranlari icin kalici veri zemini hazirlanir.
+
 ## Lokal Testler
 
 Her servis kendi Go modulu olarak test edilebilir:

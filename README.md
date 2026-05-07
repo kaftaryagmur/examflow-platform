@@ -138,6 +138,28 @@ cd ..\exam-service
 go test ./...
 ```
 
+## Auth Endpointleri
+
+SCRUM-26 kapsaminda register/login altyapisi API service icinde baslatilmistir. Kullanici kayitlari `users` collection'ina yazilir ve parola duz metin olarak saklanmaz.
+
+Register:
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8080/auth/register `
+  -H "Content-Type: application/json" `
+  -d "{\"email\":\"teacher@example.com\",\"displayName\":\"Teacher User\",\"password\":\"strongpass\"}"
+```
+
+Login:
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8080/auth/login `
+  -H "Content-Type: application/json" `
+  -d "{\"email\":\"teacher@example.com\",\"password\":\"strongpass\"}"
+```
+
+Login basarili oldugunda gecici bir auth token doner. Token dogrulama ve protected endpoint middleware'i SCRUM-31 kapsaminda genisletilecektir.
+
 ## Development Ortamini Acma
 
 Windows PowerShell:

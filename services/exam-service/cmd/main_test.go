@@ -323,3 +323,42 @@ func TestParseValidatedEventReturnsEventID(t *testing.T) {
 		t.Fatalf("expected documentId doc-69, got %q", event.DocumentID)
 	}
 }
+
+type fakeExamMessage struct {
+	id     string
+	data   []byte
+	acked  bool
+	nacked bool
+}
+
+func (m *fakeExamMessage) ID() string {
+	return m.id
+}
+
+func (m *fakeExamMessage) Data() []byte {
+	return m.data
+}
+
+func (m *fakeExamMessage) Ack() {
+	m.acked = true
+}
+
+func (m *fakeExamMessage) Nack() {
+	m.nacked = true
+}
+
+func TestHandleValidatedMessageAcksUnsupportedEventType(t *testing.T) {
+	msg := &fakeExamMessage{
+		id:   "msg-unsupported",
+		data: []byte(`{"eventId":"evt-70","documentId":"doc-70","eventType":"document.processed"}`),
+	}
+
+	handleValidatedMessage(msg)
+
+	if !msg.acked {
+		t.Fatal("expected unsupported event type to be acked")
+	}
+	if msg.nacked {
+		t.Fatal("did not expect unsupported event type to be nacked")
+	}
+}

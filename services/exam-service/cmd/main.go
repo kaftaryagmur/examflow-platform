@@ -36,6 +36,12 @@ type validatedEvent struct {
 	Timestamp        string `json:"timestamp"`
 }
 
+type eventEnvelope struct {
+	EventID    string `json:"eventId,omitempty"`
+	DocumentID string `json:"documentId,omitempty"`
+	EventType  string `json:"eventType"`
+}
+
 type examMessage interface {
 	ID() string
 	Data() []byte
@@ -146,16 +152,36 @@ func startConsumer(ctx context.Context, projectID, subscriptionID string) {
 }
 
 func handleValidatedMessage(msg examMessage) {
-	event, err := parseValidatedEvent(msg.Data())
+	envelope, err := parseEventEnvelope(msg.Data())
 	if err != nil {
-		logKV("error", "exam-service", "message parse failed", "message_id", msg.ID(), "error", err.Error())
+		logKV("error", "exam-service", "message envelope parse failed", "message_id", msg.ID(), "error", err.Error())
 		msg.Nack()
 		return
 	}
 
-	if event.EventType != "exam.validation.completed" {
-		logKV("warn", "exam-service", "unexpected event type", "message_id", msg.ID(), "event_id", event.EventID, "event_type", event.EventType)
+	if envelope.EventType != "exam.validation.completed" {
+		logKV(
+			"info", "exam-service", "event ignored",
+			"message_id", msg.ID(),
+			"event_id", envelope.EventID,
+			"document_id", envelope.DocumentID,
+			"event_type", envelope.EventType,
+		)
 		msg.Ack()
+		return
+	}
+
+	event, err := parseValidatedEvent(msg.Data())
+	if err != nil {
+		logKV(
+			"error", "exam-service", "message parse failed",
+			"message_id", msg.ID(),
+			"event_id", envelope.EventID,
+			"document_id", envelope.DocumentID,
+			"event_type", envelope.EventType,
+			"error", err.Error(),
+		)
+		msg.Nack()
 		return
 	}
 
@@ -210,6 +236,23 @@ func (store mongoExamStore) Save(ctx context.Context, exam Exam) error {
 	}
 	logKV("info", "exam-service", "exam persisted to mongodb", "document_id", exam.DocumentID, "collection", store.collection.Name())
 	return nil
+}
+
+func parseEventEnvelope(data []byte) (eventEnvelope, error) {
+	var event eventEnvelope
+	if err := json.Unmarshal(data, &event); err != nil {
+		return eventEnvelope{}, err
+	}
+
+	event.EventID = strings.TrimSpace(event.EventID)
+	event.DocumentID = strings.TrimSpace(event.DocumentID)
+	event.EventType = strings.TrimSpace(event.EventType)
+
+	if event.EventType == "" {
+		return eventEnvelope{}, fmt.Errorf("eventType is required")
+	}
+
+	return event, nil
 }
 
 func parseValidatedEvent(data []byte) (validatedEvent, error) {

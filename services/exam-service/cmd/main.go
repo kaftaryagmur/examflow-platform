@@ -28,6 +28,7 @@ type healthResponse struct {
 type validatedEvent struct {
 	EventID          string `json:"eventId,omitempty"`
 	DocumentID       string `json:"documentId"`
+	UserID           string `json:"userId"`
 	EventType        string `json:"eventType"`
 	ValidationResult string `json:"validationResult"`
 	Timestamp        string `json:"timestamp"`
@@ -212,6 +213,7 @@ func parseValidatedEvent(data []byte) (validatedEvent, error) {
 
 	event.EventID = strings.TrimSpace(event.EventID)
 	event.DocumentID = strings.TrimSpace(event.DocumentID)
+	event.UserID = strings.TrimSpace(event.UserID)
 	event.EventType = strings.TrimSpace(event.EventType)
 	event.ValidationResult = strings.TrimSpace(event.ValidationResult)
 	event.Timestamp = strings.TrimSpace(event.Timestamp)
@@ -232,13 +234,22 @@ func buildExam(event validatedEvent) (Exam, error) {
 		return Exam{}, err
 	}
 
-	return Exam{
+	exam := Exam{
 		ID:               bson.NewObjectID(),
 		DocumentID:       event.DocumentID,
 		ValidationResult: event.ValidationResult,
 		Status:           status,
 		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
-	}, nil
+	}
+	if event.UserID != "" {
+		userID, err := bson.ObjectIDFromHex(event.UserID)
+		if err != nil {
+			return Exam{}, fmt.Errorf("invalid userId %q", event.UserID)
+		}
+		exam.UserID = userID
+	}
+
+	return exam, nil
 }
 
 func loadMongoDBConfig() (mongoDBConfig, bool) {

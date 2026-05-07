@@ -63,3 +63,18 @@ Document 1 -> N Exam
 ```
 
 MongoDB dokuman modeli kullanildigi icin iliskiler foreign key constraint ile degil, `ObjectId` referanslari ve uygulama seviyesindeki kontrol ile yonetilir. SCRUM-32 kapsaminda bu referanslar ownership kurallariyla guclendirilecektir.
+
+## Ownership Flow
+
+SCRUM-32 kapsaminda kullanici sahipligi JWT icindeki `userId` claim'i uzerinden event zincirine tasinir.
+
+```text
+JWT userId
+-> /publish
+-> document.uploaded.userId
+-> document.processed.userId
+-> exam.validation.completed.userId
+-> exams.userId
+```
+
+Bu akista `userId`, API tarafinda protected endpoint middleware'i ile dogrulanmis kullanici context'inden alinir. Worker ve validation servisleri bu bilgiyi event payload'i icinde korur. Exam service, gelen `userId` degerini MongoDB `ObjectId` formatinda dogrulayarak `exams.userId` alanina yazar.

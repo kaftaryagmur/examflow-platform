@@ -47,6 +47,21 @@ var testAuth = authService{
 	},
 }
 
+func testBearerToken(t *testing.T) string {
+	t.Helper()
+	user := User{
+		ID:          bson.NewObjectID(),
+		Email:       "teacher@example.com",
+		DisplayName: "Teacher User",
+		Status:      userStatusActive,
+	}
+	token, err := testAuth.GenerateToken(user)
+	if err != nil {
+		t.Fatalf("token generation failed: %v", err)
+	}
+	return token
+}
+
 func (f *fakePublisher) Publish(_ context.Context, msg *pubsub.Message) publishResult {
 	f.lastPayload = msg.Data
 	return f.result
@@ -98,6 +113,7 @@ func (f *fakeUserStore) FindUserByEmail(_ context.Context, email string) (User, 
 
 func TestPublishRequiresDocumentID(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/publish", bytes.NewBufferString(`{"fileName":"notes.pdf"}`))
+	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
 	rec := httptest.NewRecorder()
 
 	newServer(context.Background(), nil, "mock", nil, nil, testAuth, true).ServeHTTP(rec, req)
@@ -109,6 +125,7 @@ func TestPublishRequiresDocumentID(t *testing.T) {
 
 func TestPublishReturnsAcceptedResponse(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/publish", bytes.NewBufferString(`{"documentId":"doc-42","fileName":"week1.pdf","source":"web"}`))
+	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
 	rec := httptest.NewRecorder()
 
 	fake := &fakePublisher{result: fakePublishResult{id: "msg-123"}}
@@ -127,6 +144,20 @@ func TestPublishReturnsAcceptedResponse(t *testing.T) {
 	}
 	if !bytes.Contains(fake.lastPayload, []byte(`"documentId":"doc-42"`)) {
 		t.Fatalf("expected payload to include documentId, got %s", string(fake.lastPayload))
+	}
+	if !bytes.Contains(fake.lastPayload, []byte(`"userId"`)) {
+		t.Fatalf("expected payload to include userId, got %s", string(fake.lastPayload))
+	}
+}
+
+func TestPublishRequiresBearerToken(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/publish", bytes.NewBufferString(`{"documentId":"doc-42","fileName":"week1.pdf","source":"web"}`))
+	rec := httptest.NewRecorder()
+
+	newServer(context.Background(), nil, "mock", nil, nil, testAuth, true).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
 	}
 }
 

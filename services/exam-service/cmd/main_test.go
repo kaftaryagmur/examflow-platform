@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type fakeMessage struct {
@@ -54,6 +56,7 @@ func TestHealthRejectsNonGET(t *testing.T) {
 func TestParseValidatedEventReturnsFields(t *testing.T) {
 	payload, err := json.Marshal(map[string]string{
 		"documentId":       "doc-123",
+		"userId":           "64b7f8f8f8f8f8f8f8f8f8f8",
 		"eventType":        "exam.validation.completed",
 		"validationResult": "valid",
 		"timestamp":        "2026-04-26T15:00:00Z",
@@ -69,6 +72,9 @@ func TestParseValidatedEventReturnsFields(t *testing.T) {
 
 	if event.DocumentID != "doc-123" {
 		t.Fatalf("expected doc-123, got %q", event.DocumentID)
+	}
+	if event.UserID != "64b7f8f8f8f8f8f8f8f8f8f8" {
+		t.Fatalf("expected userId to be parsed, got %q", event.UserID)
 	}
 	if event.ValidationResult != "valid" {
 		t.Fatalf("expected valid, got %q", event.ValidationResult)
@@ -92,8 +98,10 @@ func TestParseValidatedEventRequiresValidationResult(t *testing.T) {
 }
 
 func TestBuildExamReturnsExpectedFields(t *testing.T) {
+	userID := bson.NewObjectID()
 	exam, err := buildExam(validatedEvent{
 		DocumentID:       "doc-123",
+		UserID:           userID.Hex(),
 		ValidationResult: "valid",
 	})
 	if err != nil {
@@ -102,6 +110,9 @@ func TestBuildExamReturnsExpectedFields(t *testing.T) {
 
 	if exam.DocumentID != "doc-123" {
 		t.Fatalf("expected doc-123, got %q", exam.DocumentID)
+	}
+	if exam.UserID != userID {
+		t.Fatalf("expected userId %s, got %s", userID.Hex(), exam.UserID.Hex())
 	}
 	if exam.ValidationResult != "valid" {
 		t.Fatalf("expected valid, got %q", exam.ValidationResult)
@@ -158,6 +169,17 @@ func TestBuildExamReturnsFailedStatusForInvalidResult(t *testing.T) {
 	}
 }
 
+func TestBuildExamRejectsInvalidUserID(t *testing.T) {
+	_, err := buildExam(validatedEvent{
+		DocumentID:       "doc-999",
+		UserID:           "not-object-id",
+		ValidationResult: "valid",
+	})
+	if err == nil {
+		t.Fatal("expected invalid userId error")
+	}
+}
+
 func TestTransitionExamStatusAllowsValidTransitions(t *testing.T) {
 	status, err := transitionExamStatus(examStatusDraft, examStatusProcessing)
 	if err != nil {
@@ -195,6 +217,7 @@ func TestTransitionExamStatusRejectsInvalidTransition(t *testing.T) {
 func TestHandleValidatedMessageAcksValidPayload(t *testing.T) {
 	payload, err := json.Marshal(map[string]string{
 		"documentId":       "doc-123",
+		"userId":           bson.NewObjectID().Hex(),
 		"eventType":        "exam.validation.completed",
 		"validationResult": "valid",
 	})

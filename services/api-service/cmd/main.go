@@ -23,6 +23,7 @@ func init() {
 }
 
 type Event struct {
+	EventID    string `json:"eventId,omitempty"`
 	EventType  string `json:"eventType"`
 	UserID     string `json:"userId"`
 	DocumentID string `json:"documentId"`
@@ -235,7 +236,7 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			return
 		}
 		if _, err := documents.CreateDocument(r.Context(), document); err != nil {
-			logKV("error", "api-service", "document persistence failed", "endpoint", "/publish", "document_id", event.DocumentID, "user_id", event.UserID, "error", err.Error())
+			logKV("error", "api-service", "document persistence failed", "endpoint", "/publish", "event_id", event.EventID, "document_id", event.DocumentID, "user_id", event.UserID, "error", err.Error())
 			http.Error(w, "document persistence failed", http.StatusInternalServerError)
 			return
 		}
@@ -252,13 +253,13 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 
 		payload, err := json.Marshal(event)
 		if err != nil {
-			logKV("error", "api-service", "event marshal failed", "endpoint", "/publish", "error", err.Error())
+			logKV("error", "api-service", "event marshal failed", "endpoint", "/publish", "event_id", event.EventID, "document_id", event.DocumentID, "error", err.Error())
 			http.Error(w, "could not create event payload", http.StatusInternalServerError)
 			return
 		}
 
 		if pub == nil {
-			logKV("info", "api-service", "mock event published", "endpoint", "/publish", "payload", string(payload))
+			logKV("info", "api-service", "mock event published", "endpoint", "/publish", "event_id", event.EventID, "document_id", event.DocumentID, "payload", string(payload))
 			writeJSON(w, http.StatusOK, PublishResponse{
 				Status: "accepted",
 				Mode:   mode,
@@ -267,15 +268,15 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			return
 		}
 
-		logKV("info", "api-service", "publishing event", "endpoint", "/publish", "document_id", event.DocumentID, "event_type", event.EventType)
+		logKV("info", "api-service", "publishing event", "endpoint", "/publish", "event_id", event.EventID, "document_id", event.DocumentID, "event_type", event.EventType)
 		messageID, err := pub.Publish(ctx, &pubsub.Message{Data: payload}).Get(ctx)
 		if err != nil {
-			logKV("error", "api-service", "publish failed", "endpoint", "/publish", "document_id", event.DocumentID, "error", err.Error())
+			logKV("error", "api-service", "publish failed", "endpoint", "/publish", "event_id", event.EventID, "document_id", event.DocumentID, "error", err.Error())
 			http.Error(w, "publish failed", http.StatusInternalServerError)
 			return
 		}
 
-		logKV("info", "api-service", "event published", "endpoint", "/publish", "document_id", event.DocumentID, "message_id", messageID)
+		logKV("info", "api-service", "event published", "endpoint", "/publish", "event_id", event.EventID, "document_id", event.DocumentID, "message_id", messageID)
 		writeJSON(w, http.StatusOK, PublishResponse{
 			Status:    "accepted",
 			MessageID: messageID,
@@ -412,6 +413,7 @@ func decodePublishRequest(r *http.Request) (PublishRequest, error) {
 
 func buildEvent(req PublishRequest, userID string) Event {
 	return Event{
+		EventID:    fmt.Sprintf("upload-%s-%d", strings.TrimSpace(req.DocumentID), time.Now().UTC().UnixNano()),
 		EventType:  "document.uploaded",
 		UserID:     strings.TrimSpace(userID),
 		DocumentID: strings.TrimSpace(req.DocumentID),

@@ -33,42 +33,6 @@ type validatedEvent struct {
 	Timestamp        string `json:"timestamp"`
 }
 
-type Exam struct {
-	ID               bson.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
-	DocumentID       string        `bson:"documentId" json:"documentId"`
-	ValidationResult string        `bson:"validationResult" json:"validationResult"`
-	Status           string        `bson:"status" json:"status"`
-	CreatedAt        string        `bson:"createdAt" json:"createdAt"`
-}
-
-const (
-	examStatusDraft      = "draft"
-	examStatusProcessing = "processing"
-	examStatusValidated  = "validated"
-	examStatusPublished  = "published"
-	examStatusFailed     = "failed"
-
-	examStatusCreated = examStatusDraft
-	examStatusReady   = examStatusValidated
-)
-
-var validExamTransitions = map[string]map[string]bool{
-	examStatusDraft: {
-		examStatusProcessing: true,
-		examStatusFailed:     true,
-	},
-	examStatusProcessing: {
-		examStatusValidated: true,
-		examStatusFailed:    true,
-	},
-	examStatusValidated: {
-		examStatusPublished: true,
-		examStatusFailed:    true,
-	},
-	examStatusPublished: {},
-	examStatusFailed:    {},
-}
-
 type examMessage interface {
 	ID() string
 	Data() []byte
@@ -115,7 +79,7 @@ func main() {
 		logKV("warn", "exam-service", "mongodb connection unavailable", "error", err.Error())
 	} else if mongoClient != nil {
 		defer mongoClient.Disconnect(context.Background())
-		exams = mongoExamStore{collection: mongoDatabase.Collection("exams")}
+		exams = mongoExamStore{collection: mongoDatabase.Collection(examsCollection)}
 		logKV("info", "exam-service", "mongodb connection ready", "database", mongoDatabase.Name())
 	}
 

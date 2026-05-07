@@ -27,6 +27,10 @@ Cloud bilesenleri:
 - MongoDB persistent volume ile Kubernetes icinde calisan veri katmani
 - Google Compute Engine uzerinde Jenkins
 
+Domain veri modeli ayrintilari icin:
+
+- [docs/data-models.md](docs/data-models.md)
+
 ## Dizin Yapisi
 
 ```text
@@ -104,7 +108,17 @@ mongodb
 
 API service acilis sirasinda MongoDB baglantisini kontrol eder, `connection_checks` collection'i uzerinden insert/read dogrulamasi yapar ve sonucu loglar. `/ready` endpoint'i MongoDB ping sonucunu `databaseStatus` alani ile raporlar.
 
-Exam service, `document.validated` eventlerinden olusan exam state kayitlarini `exams` collection'ina yazar. MongoDB verisi `mongodb-data` PVC uzerinde tutuldugu icin pod restart durumunda veri korunur.
+Exam service, `exam.validation.completed` eventlerinden olusan exam state kayitlarini `exams` collection'ina yazar. MongoDB verisi `mongodb-data` PVC uzerinde tutuldugu icin pod restart durumunda veri korunur.
+
+SCRUM-27 kapsaminda temel collection modeli su sekilde konumlandirilir:
+
+```text
+users      -> kullanici hesabi ve auth sonrasi profil bilgileri
+documents  -> kullaniciya ait dokuman kayitlari ve islenme durumu
+exams      -> document/validation akisi sonucunda olusan exam state kayitlari
+```
+
+Detayli alan listesi ve iliski notlari [docs/data-models.md](docs/data-models.md) icinde tutulur.
 
 ## Lokal Testler
 

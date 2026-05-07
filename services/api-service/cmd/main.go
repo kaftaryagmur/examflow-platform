@@ -97,6 +97,7 @@ func main() {
 	projectID := os.Getenv("GCP_PROJECT_ID")
 	topicID := os.Getenv("PUBSUB_TOPIC")
 	port := os.Getenv("PORT")
+	jwtSecret := os.Getenv("JWT_SECRET")
 
 	if port == "" {
 		port = "8080"
@@ -137,13 +138,18 @@ func main() {
 		}
 	}
 
-	handler := newServer(ctx, pub, mode, db, users)
+	auth, authConfigured := newAuthService(jwtSecret, 2*time.Hour)
+	if !authConfigured {
+		logKV("warn", "api-service", "jwt secret not configured, auth endpoints degraded")
+	}
+
+	handler := newServer(ctx, pub, mode, db, users, auth, authConfigured)
 
 	logKV("info", "api-service", "listening", "port", port, "mode", mode)
 	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
 
-func newServer(ctx context.Context, pub publisher, mode string, db databaseClient, users userStore) http.Handler {
+func newServer(ctx context.Context, pub publisher, mode string, db databaseClient, users userStore, auth authService, authConfigured bool) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -284,6 +290,10 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			http.Error(w, "auth store unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		if !authConfigured {
+			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
+			return
+		}
 
 		req, err := decodeLoginRequest(r)
 		if err != nil {
@@ -292,7 +302,7 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			return
 		}
 
-		user, token, err := loginUser(r.Context(), users, req)
+		user, token, err := loginUser(r.Context(), users, auth, req)
 		if err != nil {
 			logKV("warn", "api-service", "login failed", "endpoint", "/auth/login", "email", normalizeEmail(req.Email), "error", err.Error())
 			http.Error(w, "invalid credentials", http.StatusUnauthorized)
@@ -306,6 +316,31 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			User:   userResponseFromUser(user),
 		})
 	})
+
+	if authConfigured {
+		mux.Handle("/auth/me", auth.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			claims, ok := authPrincipalFromContext(r.Context())
+			if !ok {
+				http.Error(w, "auth context unavailable", http.StatusUnauthorized)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, authResponse{
+				Status: "authenticated",
+				User:   userResponseFromClaims(claims),
+			})
+		})))
+	} else {
+		mux.HandleFunc("/auth/me", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
+			return
+		})
+	}
 
 	return withCORS(withRequestLogging("api-service", mux))
 }

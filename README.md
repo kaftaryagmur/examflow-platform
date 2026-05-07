@@ -141,6 +141,7 @@ go test ./...
 ## Auth Endpointleri
 
 SCRUM-26 kapsaminda register/login altyapisi API service icinde baslatilmistir. Kullanici kayitlari `users` collection'ina yazilir ve parola duz metin olarak saklanmaz.
+SCRUM-31 kapsaminda login yaniti JWT tabanli hale getirilmis ve protected endpoint icin auth middleware eklenmistir. JWT imza anahtari `JWT_SECRET` olarak Kubernetes Secret uzerinden inject edilir.
 
 Register:
 
@@ -158,7 +159,15 @@ curl.exe -X POST http://127.0.0.1:8080/auth/login `
   -d "{\"email\":\"teacher@example.com\",\"password\":\"strongpass\"}"
 ```
 
-Login basarili oldugunda gecici bir auth token doner. Token dogrulama ve protected endpoint middleware'i SCRUM-31 kapsaminda genisletilecektir.
+Login basarili oldugunda JWT token doner. Protected endpoint'lere erisim icin standart Bearer token header'i kullanilir:
+
+```powershell
+$Token = "<login-response-token>"
+curl.exe http://127.0.0.1:8080/auth/me `
+  -H "Authorization: Bearer $Token"
+```
+
+Eksik, hatali veya expire olmus token durumunda API `401 Unauthorized` doner.
 
 ## Development Ortamini Acma
 

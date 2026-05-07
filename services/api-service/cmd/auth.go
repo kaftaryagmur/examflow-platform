@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -60,6 +59,24 @@ type authResponse struct {
 	Token  string       `json:"token,omitempty"`
 	User   userResponse `json:"user"`
 }
+
+type authService struct {
+	secret []byte
+	ttl    time.Duration
+	now    func() time.Time
+}
+
+type authClaims struct {
+	UserID      string `json:"userId"`
+	Email       string `json:"email"`
+	DisplayName string `json:"displayName"`
+	Status      string `json:"status"`
+	jwt.RegisteredClaims
+}
+
+type authContextKey string
+
+const authPrincipalKey authContextKey = "authPrincipal"
 
 func decodeRegisterRequest(r *http.Request) (registerRequest, error) {
 	defer r.Body.Close()
@@ -136,7 +153,7 @@ func registerUser(ctx context.Context, users userStore, req registerRequest) (Us
 	return users.CreateUser(ctx, user)
 }
 
-func loginUser(ctx context.Context, users userStore, req loginRequest) (User, string, error) {
+func loginUser(ctx context.Context, users userStore, auth authService, req loginRequest) (User, string, error) {
 	user, err := users.FindUserByEmail(ctx, req.Email)
 	if err != nil {
 		return User{}, "", errInvalidLogin
@@ -148,7 +165,7 @@ func loginUser(ctx context.Context, users userStore, req loginRequest) (User, st
 		return User{}, "", errInvalidLogin
 	}
 
-	token, err := newAuthToken()
+	token, err := auth.GenerateToken(user)
 	if err != nil {
 		return User{}, "", err
 	}
@@ -168,10 +185,102 @@ func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
-func newAuthToken() (string, error) {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
+func newAuthService(secret string, ttl time.Duration) (authService, bool) {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return authService{}, false
 	}
-	return hex.EncodeToString(bytes), nil
+	if ttl <= 0 {
+		ttl = time.Hour
+	}
+	return authService{
+		secret: []byte(secret),
+		ttl:    ttl,
+		now:    time.Now,
+	}, true
+}
+
+func (auth authService) GenerateToken(user User) (string, error) {
+	now := auth.now().UTC()
+	claims := authClaims{
+		UserID:      user.ID.Hex(),
+		Email:       user.Email,
+		DisplayName: user.DisplayName,
+		Status:      user.Status,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   user.ID.Hex(),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(auth.ttl)),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(auth.secret)
+}
+
+func (auth authService) ValidateToken(rawToken string) (authClaims, error) {
+	rawToken = strings.TrimSpace(rawToken)
+	if rawToken == "" {
+		return authClaims{}, errInvalidLogin
+	}
+
+	token, err := jwt.ParseWithClaims(
+		rawToken,
+		&authClaims{},
+		func(token *jwt.Token) (any, error) {
+			if token.Method != jwt.SigningMethodHS256 {
+				return nil, errInvalidLogin
+			}
+			return auth.secret, nil
+		},
+		jwt.WithTimeFunc(auth.now),
+	)
+	if err != nil {
+		return authClaims{}, err
+	}
+
+	claims, ok := token.Claims.(*authClaims)
+	if !ok || !token.Valid {
+		return authClaims{}, errInvalidLogin
+	}
+	return *claims, nil
+}
+
+func (auth authService) RequireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header := strings.TrimSpace(r.Header.Get("Authorization"))
+		if header == "" {
+			http.Error(w, "missing authorization header", http.StatusUnauthorized)
+			return
+		}
+
+		parts := strings.Fields(header)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			http.Error(w, "invalid authorization header", http.StatusUnauthorized)
+			return
+		}
+
+		claims, err := auth.ValidateToken(parts[1])
+		if err != nil {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), authPrincipalKey, claims)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func authPrincipalFromContext(ctx context.Context) (authClaims, bool) {
+	claims, ok := ctx.Value(authPrincipalKey).(authClaims)
+	return claims, ok
+}
+
+func userResponseFromClaims(claims authClaims) userResponse {
+	return userResponse{
+		ID:          claims.UserID,
+		Email:       claims.Email,
+		DisplayName: claims.DisplayName,
+		Status:      claims.Status,
+	}
 }

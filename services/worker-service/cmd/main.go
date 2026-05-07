@@ -16,6 +16,7 @@ import (
 
 type Event struct {
 	EventType  string `json:"eventType"`
+	UserID     string `json:"userId"`
 	DocumentID string `json:"documentId"`
 	FileName   string `json:"fileName,omitempty"`
 	Source     string `json:"source,omitempty"`
@@ -24,6 +25,7 @@ type Event struct {
 
 type ProcessingResult struct {
 	DocumentID     string `json:"documentId"`
+	UserID         string `json:"userId"`
 	Status         string `json:"status"`
 	SummaryPreview string `json:"summaryPreview"`
 	ProcessedAt    string `json:"processedAt"`
@@ -33,6 +35,7 @@ type ProcessedEvent struct {
 	EventID        string `json:"eventId,omitempty"`
 	EventType      string `json:"eventType"`
 	DocumentID     string `json:"documentId"`
+	UserID         string `json:"userId"`
 	Status         string `json:"status"`
 	SummaryPreview string `json:"summaryPreview,omitempty"`
 	ProcessedAt    string `json:"processedAt"`
@@ -158,6 +161,7 @@ func processEvent(event Event) ProcessingResult {
 
 	return ProcessingResult{
 		DocumentID:     event.DocumentID,
+		UserID:         strings.TrimSpace(event.UserID),
 		Status:         "processed",
 		SummaryPreview: "Processed document " + event.DocumentID + " from " + fileName,
 		ProcessedAt:    time.Now().UTC().Format(time.RFC3339),
@@ -181,6 +185,7 @@ func buildProcessedEvent(result ProcessingResult) ProcessedEvent {
 		EventID:        fmt.Sprintf("processing-%s-%d", result.DocumentID, now.UnixNano()),
 		EventType:      "document.processed",
 		DocumentID:     result.DocumentID,
+		UserID:         result.UserID,
 		Status:         result.Status,
 		SummaryPreview: result.SummaryPreview,
 		ProcessedAt:    result.ProcessedAt,

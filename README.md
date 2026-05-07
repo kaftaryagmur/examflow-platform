@@ -16,7 +16,7 @@ Sistem; Go servisleri, Docker image'lari, Google Pub/Sub, MongoDB, Artifact Regi
 Temel uygulama akisi:
 
 ```text
-API -> Pub/Sub event -> Worker -> Validation -> Exam Service -> MongoDB
+User JWT -> API -> Pub/Sub event -> Worker -> Validation -> Exam Service -> MongoDB
 ```
 
 Cloud bilesenleri:
@@ -119,6 +119,8 @@ exams      -> document/validation akisi sonucunda olusan exam state kayitlari
 ```
 
 Detayli alan listesi ve iliski notlari [docs/data-models.md](docs/data-models.md) icinde tutulur.
+
+SCRUM-32 kapsaminda `/publish` endpoint'i protected hale getirilir. JWT icindeki `userId`, `document.uploaded` event'ine eklenir ve worker/validation zinciri boyunca korunarak exam-service tarafinda `exams.userId` alanina yazilir.
 
 ## Lokal Testler
 
@@ -440,6 +442,8 @@ Demo UI ile:
 - `/ready` kontrolu yapilabilir.
 - `/publish` istegi gonderilebilir.
 - Backend response bilgisi gorulebilir.
+
+Not: `/publish` protected endpoint oldugu icin once register/login akisi ile JWT alinmali ve istek `Authorization: Bearer <token>` header'i ile gonderilmelidir.
 
 ## CI/CD Akisi
 

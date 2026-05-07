@@ -23,18 +23,21 @@ type healthResponse struct {
 
 type processedEvent struct {
 	DocumentID string `json:"documentId"`
+	UserID     string `json:"userId"`
 	EventType  string `json:"eventType"`
 	Timestamp  string `json:"timestamp"`
 }
 
 type validationResult struct {
 	DocumentID string
+	UserID     string
 	Status     string
 }
 
 type validatedEvent struct {
 	EventID          string `json:"eventId,omitempty"`
 	DocumentID       string `json:"documentId"`
+	UserID           string `json:"userId"`
 	EventType        string `json:"eventType"`
 	ValidationResult string `json:"validationResult"`
 	Timestamp        string `json:"timestamp"`
@@ -166,6 +169,7 @@ func parseProcessedEvent(data []byte) (processedEvent, error) {
 	}
 
 	event.DocumentID = strings.TrimSpace(event.DocumentID)
+	event.UserID = strings.TrimSpace(event.UserID)
 	event.EventType = strings.TrimSpace(event.EventType)
 	event.Timestamp = strings.TrimSpace(event.Timestamp)
 
@@ -187,6 +191,7 @@ func validateDocument(event processedEvent) validationResult {
 
 	return validationResult{
 		DocumentID: event.DocumentID,
+		UserID:     event.UserID,
 		Status:     status,
 	}
 }
@@ -226,6 +231,7 @@ func buildValidatedEvent(result validationResult) validatedEvent {
 	return validatedEvent{
 		EventID:          fmt.Sprintf("validation-%s-%d", result.DocumentID, time.Now().UTC().UnixNano()),
 		DocumentID:       result.DocumentID,
+		UserID:           result.UserID,
 		EventType:        "exam.validation.completed",
 		ValidationResult: result.Status,
 		Timestamp:        eventTimestamp,

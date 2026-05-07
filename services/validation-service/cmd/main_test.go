@@ -65,6 +65,7 @@ func TestHealthRejectsNonGET(t *testing.T) {
 func TestParseProcessedEventReturnsFields(t *testing.T) {
 	payload, err := json.Marshal(map[string]string{
 		"documentId": "doc-42",
+		"userId":     "user-42",
 		"eventType":  "document.processed",
 		"timestamp":  "2026-04-26T15:00:00Z",
 	})
@@ -79,6 +80,9 @@ func TestParseProcessedEventReturnsFields(t *testing.T) {
 
 	if event.DocumentID != "doc-42" {
 		t.Fatalf("expected doc-42, got %q", event.DocumentID)
+	}
+	if event.UserID != "user-42" {
+		t.Fatalf("expected user-42, got %q", event.UserID)
 	}
 	if event.EventType != "document.processed" {
 		t.Fatalf("expected document.processed, got %q", event.EventType)
@@ -125,13 +129,16 @@ func TestParseProcessedEventAllowsEmptyDocumentID(t *testing.T) {
 }
 
 func TestValidateDocumentReturnsValidWhenDocumentIDExists(t *testing.T) {
-	result := validateDocument(processedEvent{DocumentID: "doc-123"})
+	result := validateDocument(processedEvent{DocumentID: "doc-123", UserID: "user-123"})
 
 	if result.Status != "valid" {
 		t.Fatalf("expected valid, got %q", result.Status)
 	}
 	if result.DocumentID != "doc-123" {
 		t.Fatalf("expected doc-123, got %q", result.DocumentID)
+	}
+	if result.UserID != "user-123" {
+		t.Fatalf("expected user-123, got %q", result.UserID)
 	}
 }
 
@@ -146,6 +153,7 @@ func TestValidateDocumentReturnsInvalidWhenDocumentIDMissing(t *testing.T) {
 func TestBuildValidatedEventReturnsExpectedFields(t *testing.T) {
 	event := buildValidatedEvent(validationResult{
 		DocumentID: "doc-123",
+		UserID:     "user-123",
 		Status:     "valid",
 	})
 
@@ -154,6 +162,9 @@ func TestBuildValidatedEventReturnsExpectedFields(t *testing.T) {
 	}
 	if event.EventType != "exam.validation.completed" {
 		t.Fatalf("expected exam.validation.completed, got %q", event.EventType)
+	}
+	if event.UserID != "user-123" {
+		t.Fatalf("expected user-123, got %q", event.UserID)
 	}
 	if event.EventID == "" {
 		t.Fatal("expected eventId to be populated")
@@ -173,6 +184,7 @@ func TestPublishValidatedEventPublishesPayload(t *testing.T) {
 
 	err := publishValidatedEvent(context.Background(), pub, validationResult{
 		DocumentID: "doc-123",
+		UserID:     "user-123",
 		Status:     "valid",
 	})
 	if err != nil {
@@ -181,6 +193,9 @@ func TestPublishValidatedEventPublishesPayload(t *testing.T) {
 
 	if !bytes.Contains(pub.lastPayload, []byte(`"documentId":"doc-123"`)) {
 		t.Fatalf("expected documentId in payload, got %s", string(pub.lastPayload))
+	}
+	if !bytes.Contains(pub.lastPayload, []byte(`"userId":"user-123"`)) {
+		t.Fatalf("expected userId in payload, got %s", string(pub.lastPayload))
 	}
 	if !bytes.Contains(pub.lastPayload, []byte(`"eventType":"exam.validation.completed"`)) {
 		t.Fatalf("expected eventType in payload, got %s", string(pub.lastPayload))

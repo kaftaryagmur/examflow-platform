@@ -22,6 +22,7 @@ import (
 
 type Event struct {
 	EventType  string `json:"eventType"`
+	UserID     string `json:"userId"`
 	DocumentID string `json:"documentId"`
 	FileName   string `json:"fileName,omitempty"`
 	Source     string `json:"source,omitempty"`
@@ -189,9 +190,14 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 		writeJSON(w, status, body)
 	})
 
-	mux.HandleFunc("/publish", func(w http.ResponseWriter, r *http.Request) {
+	publishHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authPrincipalFromContext(r.Context())
+		if !ok {
+			http.Error(w, "auth context unavailable", http.StatusUnauthorized)
 			return
 		}
 
@@ -202,10 +208,11 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			return
 		}
 
-		event := buildEvent(req)
+		event := buildEvent(req, claims.UserID)
 		logKV(
 			"info", "api-service", "request received",
 			"endpoint", "/publish",
+			"user_id", event.UserID,
 			"document_id", event.DocumentID,
 			"file_name", event.FileName,
 			"source", event.Source,
@@ -245,6 +252,14 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			Event:     event,
 		})
 	})
+	if authConfigured {
+		mux.Handle("/publish", auth.RequireAuth(publishHandler))
+	} else {
+		mux.HandleFunc("/publish", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
+			return
+		})
+	}
 
 	mux.HandleFunc("/auth/register", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -364,9 +379,10 @@ func decodePublishRequest(r *http.Request) (PublishRequest, error) {
 	return req, nil
 }
 
-func buildEvent(req PublishRequest) Event {
+func buildEvent(req PublishRequest, userID string) Event {
 	return Event{
 		EventType:  "document.uploaded",
+		UserID:     strings.TrimSpace(userID),
 		DocumentID: strings.TrimSpace(req.DocumentID),
 		FileName:   strings.TrimSpace(req.FileName),
 		Source:     strings.TrimSpace(req.Source),

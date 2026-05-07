@@ -32,6 +32,7 @@ exams
 | --- | --- | --- |
 | `_id` | ObjectId | MongoDB primary key |
 | `userId` | ObjectId | Dokuman sahibi kullanici |
+| `documentId` | string | Event akisi ve dis istemciler icin dokuman referansi |
 | `fileName` | string | Yuklenen dosya adi |
 | `source` | string | `manual`, `demo` gibi kaynak bilgisi |
 | `status` | string | `uploaded`, `processing`, `processed`, `failed` |
@@ -71,10 +72,11 @@ SCRUM-32 kapsaminda kullanici sahipligi JWT icindeki `userId` claim'i uzerinden 
 ```text
 JWT userId
 -> /publish
+-> documents.userId
 -> document.uploaded.userId
 -> document.processed.userId
 -> exam.validation.completed.userId
 -> exams.userId
 ```
 
-Bu akista `userId`, API tarafinda protected endpoint middleware'i ile dogrulanmis kullanici context'inden alinir. Worker ve validation servisleri bu bilgiyi event payload'i icinde korur. Exam service, gelen `userId` degerini MongoDB `ObjectId` formatinda dogrulayarak `exams.userId` alanina yazar.
+Bu akista `userId`, API tarafinda protected endpoint middleware'i ile dogrulanmis kullanici context'inden alinir. API, `/publish` istegi sirasinda `documents` collection'ina kullanici sahipligi bulunan `uploaded` durumunda bir dokuman kaydi yazar. Worker ve validation servisleri bu bilgiyi event payload'i icinde korur. Exam service, gelen `userId` degerini MongoDB `ObjectId` formatinda dogrulayarak `exams.userId` alanina yazar.

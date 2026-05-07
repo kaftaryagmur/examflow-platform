@@ -4,7 +4,9 @@ go 1.26.1
 
 require (
 	cloud.google.com/go/pubsub v1.50.1
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	go.mongodb.org/mongo-driver/v2 v2.6.0
+	golang.org/x/crypto v0.41.0
 )
 
 require (
@@ -33,7 +35,6 @@ require (
 	go.opentelemetry.io/otel v1.36.0 // indirect
 	go.opentelemetry.io/otel/metric v1.36.0 // indirect
 	go.opentelemetry.io/otel/trace v1.36.0 // indirect
-	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect

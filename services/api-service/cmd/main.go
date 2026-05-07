@@ -8,8 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -20,8 +18,13 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
+func init() {
+	log.SetFlags(0)
+}
+
 type Event struct {
 	EventType  string `json:"eventType"`
+	UserID     string `json:"userId"`
 	DocumentID string `json:"documentId"`
 	FileName   string `json:"fileName,omitempty"`
 	Source     string `json:"source,omitempty"`
@@ -80,6 +83,23 @@ type mongoDatabaseClient struct {
 	name     string
 }
 
+type userStore interface {
+	CreateUser(context.Context, User) (User, error)
+	FindUserByEmail(context.Context, string) (User, error)
+}
+
+type mongoUserStore struct {
+	collection *mongo.Collection
+}
+
+type documentStore interface {
+	CreateDocument(context.Context, Document) (Document, error)
+}
+
+type mongoDocumentStore struct {
+	collection *mongo.Collection
+}
+
 func (t topicPublisher) Publish(ctx context.Context, msg *pubsub.Message) publishResult {
 	return t.topic.Publish(ctx, msg)
 }
@@ -88,6 +108,7 @@ func main() {
 	projectID := os.Getenv("GCP_PROJECT_ID")
 	topicID := os.Getenv("PUBSUB_TOPIC")
 	port := os.Getenv("PORT")
+	jwtSecret := os.Getenv("JWT_SECRET")
 
 	if port == "" {
 		port = "8080"
@@ -109,6 +130,8 @@ func main() {
 		logKV("info", "api-service", "missing pubsub configuration, running in mock mode")
 	}
 
+	var users userStore
+	var documents documentStore
 	db, err := connectMongoDB(ctx)
 	if err != nil {
 		logKV("warn", "api-service", "mongodb connection unavailable", "error", err.Error())
@@ -119,15 +142,30 @@ func main() {
 		} else {
 			logKV("info", "api-service", "mongodb connection ready", "database", db.Name())
 		}
+		if mongoDB, ok := db.(*mongoDatabaseClient); ok {
+			users = mongoUserStore{collection: mongoDB.database.Collection(usersCollection)}
+			documents = mongoDocumentStore{collection: mongoDB.database.Collection(documentsCollection)}
+			if err := ensureUserIndexes(ctx, users); err != nil {
+				logKV("warn", "api-service", "mongodb user index setup failed", "database", db.Name(), "error", err.Error())
+			}
+		}
 	}
 
-	handler := newServer(ctx, pub, mode, db)
+	auth, authConfigured := newAuthService(jwtSecret, 2*time.Hour)
+	if !authConfigured {
+		logKV("warn", "api-service", "jwt secret not configured, auth endpoints degraded")
+	}
+
+	handler := newServer(ctx, pub, mode, db, users, documents, auth, authConfigured)
 
 	logKV("info", "api-service", "listening", "port", port, "mode", mode)
-	log.Fatal(http.ListenAndServe(":"+port, handler))
+	if err := http.ListenAndServe(":"+port, handler); err != nil {
+		logKV("error", "api-service", "http server stopped", "error", err.Error())
+		os.Exit(1)
+	}
 }
 
-func newServer(ctx context.Context, pub publisher, mode string, db databaseClient) http.Handler {
+func newServer(ctx context.Context, pub publisher, mode string, db databaseClient, users userStore, documents documentStore, auth authService, authConfigured bool) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -167,9 +205,18 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 		writeJSON(w, status, body)
 	})
 
-	mux.HandleFunc("/publish", func(w http.ResponseWriter, r *http.Request) {
+	publishHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authPrincipalFromContext(r.Context())
+		if !ok {
+			http.Error(w, "auth context unavailable", http.StatusUnauthorized)
+			return
+		}
+		if documents == nil {
+			http.Error(w, "document store unavailable", http.StatusServiceUnavailable)
 			return
 		}
 
@@ -180,10 +227,23 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			return
 		}
 
-		event := buildEvent(req)
+		event := buildEvent(req, claims.UserID)
+		document, err := buildDocumentRecord(req, claims.UserID)
+		if err != nil {
+			logKV("warn", "api-service", "document ownership validation failed", "endpoint", "/publish", "error", err.Error())
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if _, err := documents.CreateDocument(r.Context(), document); err != nil {
+			logKV("error", "api-service", "document persistence failed", "endpoint", "/publish", "document_id", event.DocumentID, "user_id", event.UserID, "error", err.Error())
+			http.Error(w, "document persistence failed", http.StatusInternalServerError)
+			return
+		}
+
 		logKV(
 			"info", "api-service", "request received",
 			"endpoint", "/publish",
+			"user_id", event.UserID,
 			"document_id", event.DocumentID,
 			"file_name", event.FileName,
 			"source", event.Source,
@@ -223,6 +283,110 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			Event:     event,
 		})
 	})
+	if authConfigured {
+		mux.Handle("/publish", auth.RequireAuth(publishHandler))
+	} else {
+		mux.HandleFunc("/publish", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
+			return
+		})
+	}
+
+	mux.HandleFunc("/auth/register", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if users == nil {
+			http.Error(w, "auth store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		req, err := decodeRegisterRequest(r)
+		if err != nil {
+			logKV("warn", "api-service", "invalid auth request", "endpoint", "/auth/register", "error", err.Error())
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		user, err := registerUser(r.Context(), users, req)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, errUserAlreadyExists) {
+				status = http.StatusConflict
+			}
+			logKV("warn", "api-service", "register failed", "endpoint", "/auth/register", "email", normalizeEmail(req.Email), "error", err.Error())
+			http.Error(w, err.Error(), status)
+			return
+		}
+
+		logKV("info", "api-service", "user registered", "endpoint", "/auth/register", "user_id", user.ID.Hex(), "email", user.Email)
+		writeJSON(w, http.StatusCreated, authResponse{
+			Status: "registered",
+			User:   userResponseFromUser(user),
+		})
+	})
+
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if users == nil {
+			http.Error(w, "auth store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !authConfigured {
+			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		req, err := decodeLoginRequest(r)
+		if err != nil {
+			logKV("warn", "api-service", "invalid auth request", "endpoint", "/auth/login", "error", err.Error())
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		user, token, err := loginUser(r.Context(), users, auth, req)
+		if err != nil {
+			logKV("warn", "api-service", "login failed", "endpoint", "/auth/login", "email", normalizeEmail(req.Email), "error", err.Error())
+			http.Error(w, "invalid credentials", http.StatusUnauthorized)
+			return
+		}
+
+		logKV("info", "api-service", "user logged in", "endpoint", "/auth/login", "user_id", user.ID.Hex(), "email", user.Email)
+		writeJSON(w, http.StatusOK, authResponse{
+			Status: "authenticated",
+			Token:  token,
+			User:   userResponseFromUser(user),
+		})
+	})
+
+	if authConfigured {
+		mux.Handle("/auth/me", auth.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			claims, ok := authPrincipalFromContext(r.Context())
+			if !ok {
+				http.Error(w, "auth context unavailable", http.StatusUnauthorized)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, authResponse{
+				Status: "authenticated",
+				User:   userResponseFromClaims(claims),
+			})
+		})))
+	} else {
+		mux.HandleFunc("/auth/me", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
+			return
+		})
+	}
 
 	return withCORS(withRequestLogging("api-service", mux))
 }
@@ -246,9 +410,10 @@ func decodePublishRequest(r *http.Request) (PublishRequest, error) {
 	return req, nil
 }
 
-func buildEvent(req PublishRequest) Event {
+func buildEvent(req PublishRequest, userID string) Event {
 	return Event{
 		EventType:  "document.uploaded",
+		UserID:     strings.TrimSpace(userID),
 		DocumentID: strings.TrimSpace(req.DocumentID),
 		FileName:   strings.TrimSpace(req.FileName),
 		Source:     strings.TrimSpace(req.Source),
@@ -344,6 +509,68 @@ func (db *mongoDatabaseClient) Close(ctx context.Context) error {
 	return db.client.Disconnect(closeCtx)
 }
 
+func (store mongoUserStore) CreateUser(ctx context.Context, user User) (User, error) {
+	saveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if user.ID.IsZero() {
+		user.ID = bson.NewObjectID()
+	}
+	_, err := store.collection.InsertOne(saveCtx, user)
+	if mongo.IsDuplicateKeyError(err) {
+		return User{}, errUserAlreadyExists
+	}
+	if err != nil {
+		return User{}, err
+	}
+	return user, nil
+}
+
+func (store mongoUserStore) FindUserByEmail(ctx context.Context, email string) (User, error) {
+	findCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var user User
+	err := store.collection.FindOne(findCtx, bson.M{"email": normalizeEmail(email)}).Decode(&user)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return User{}, errUserNotFound
+	}
+	if err != nil {
+		return User{}, err
+	}
+	return user, nil
+}
+
+func (store mongoDocumentStore) CreateDocument(ctx context.Context, document Document) (Document, error) {
+	saveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if document.ID.IsZero() {
+		document.ID = bson.NewObjectID()
+	}
+	_, err := store.collection.InsertOne(saveCtx, document)
+	if err != nil {
+		return Document{}, err
+	}
+	return document, nil
+}
+
+func ensureUserIndexes(ctx context.Context, users userStore) error {
+	store, ok := users.(mongoUserStore)
+	if !ok {
+		return nil
+	}
+
+	indexCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	_, err := store.collection.Indexes().CreateOne(indexCtx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "email", Value: 1}},
+		Options: options.Index().SetUnique(true).SetName("users_email_unique"),
+	})
+	return err
+}
+
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -394,39 +621,26 @@ func (r *statusRecorder) WriteHeader(status int) {
 }
 
 func logKV(level, service, msg string, keyvals ...any) {
-	fields := map[string]string{
-		"level":   level,
-		"service": service,
-		"msg":     msg,
+	fields := map[string]any{
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"level":     strings.ToUpper(level),
+		"service":   service,
+		"message":   msg,
 	}
 
 	for i := 0; i+1 < len(keyvals); i += 2 {
-		key := fmt.Sprint(keyvals[i])
-		fields[key] = valueToString(keyvals[i+1])
+		key := strings.TrimSpace(fmt.Sprint(keyvals[i]))
+		if key == "" {
+			continue
+		}
+		fields[key] = keyvals[i+1]
 	}
 
-	keys := make([]string, 0, len(fields))
-	for key := range fields {
-		keys = append(keys, key)
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		log.Printf(`{"timestamp":%q,"level":"ERROR","service":%q,"message":"log serialization failed","error":%q}`, time.Now().UTC().Format(time.RFC3339), service, err.Error())
+		return
 	}
-	sort.Strings(keys)
 
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%q", key, fields[key]))
-	}
-	log.Println(strings.Join(parts, " "))
-}
-
-func valueToString(v any) string {
-	switch value := v.(type) {
-	case string:
-		return value
-	case int:
-		return strconv.Itoa(value)
-	case int64:
-		return strconv.FormatInt(value, 10)
-	default:
-		return fmt.Sprint(value)
-	}
+	log.Println(string(encoded))
 }

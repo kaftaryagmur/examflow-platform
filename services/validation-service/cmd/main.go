@@ -7,13 +7,15 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/pubsub"
 )
+
+func init() {
+	log.SetFlags(0)
+}
 
 type healthResponse struct {
 	Status    string `json:"status"`
@@ -23,18 +25,21 @@ type healthResponse struct {
 
 type processedEvent struct {
 	DocumentID string `json:"documentId"`
+	UserID     string `json:"userId"`
 	EventType  string `json:"eventType"`
 	Timestamp  string `json:"timestamp"`
 }
 
 type validationResult struct {
 	DocumentID string
+	UserID     string
 	Status     string
 }
 
 type validatedEvent struct {
 	EventID          string `json:"eventId,omitempty"`
 	DocumentID       string `json:"documentId"`
+	UserID           string `json:"userId"`
 	EventType        string `json:"eventType"`
 	ValidationResult string `json:"validationResult"`
 	Timestamp        string `json:"timestamp"`
@@ -70,8 +75,11 @@ func main() {
 
 	go startConsumer(context.Background(), projectID, subscriptionID, validatedTopicID)
 
-	log.Printf("service=%q msg=%q port=%q", "validation-service", "listening", port)
-	log.Fatal(http.ListenAndServe(":"+port, handler))
+	logKV("info", "validation-service", "listening", "port", port)
+	if err := http.ListenAndServe(":"+port, handler); err != nil {
+		logKV("error", "validation-service", "http server stopped", "error", err.Error())
+		os.Exit(1)
+	}
 }
 
 func newServer() http.Handler {
@@ -145,7 +153,7 @@ func startConsumer(ctx context.Context, projectID, subscriptionID, validatedTopi
 		)
 
 		result := validateDocument(event)
-		log.Printf("validation_result=%s document_id=%s", result.Status, result.DocumentID)
+		logKV("info", "validation-service", "validation completed", "validation_result", result.Status, "document_id", result.DocumentID)
 
 		if err := publishValidatedEvent(ctx, pub, result); err != nil {
 			logKV("error", "validation-service", "validated event publish failed", "document_id", result.DocumentID, "error", err.Error())
@@ -166,6 +174,7 @@ func parseProcessedEvent(data []byte) (processedEvent, error) {
 	}
 
 	event.DocumentID = strings.TrimSpace(event.DocumentID)
+	event.UserID = strings.TrimSpace(event.UserID)
 	event.EventType = strings.TrimSpace(event.EventType)
 	event.Timestamp = strings.TrimSpace(event.Timestamp)
 
@@ -187,6 +196,7 @@ func validateDocument(event processedEvent) validationResult {
 
 	return validationResult{
 		DocumentID: event.DocumentID,
+		UserID:     event.UserID,
 		Status:     status,
 	}
 }
@@ -226,6 +236,7 @@ func buildValidatedEvent(result validationResult) validatedEvent {
 	return validatedEvent{
 		EventID:          fmt.Sprintf("validation-%s-%d", result.DocumentID, time.Now().UTC().UnixNano()),
 		DocumentID:       result.DocumentID,
+		UserID:           result.UserID,
 		EventType:        "exam.validation.completed",
 		ValidationResult: result.Status,
 		Timestamp:        eventTimestamp,
@@ -233,39 +244,26 @@ func buildValidatedEvent(result validationResult) validatedEvent {
 }
 
 func logKV(level, service, msg string, keyvals ...any) {
-	fields := map[string]string{
-		"level":   level,
-		"service": service,
-		"msg":     msg,
+	fields := map[string]any{
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"level":     strings.ToUpper(level),
+		"service":   service,
+		"message":   msg,
 	}
 
 	for i := 0; i+1 < len(keyvals); i += 2 {
-		key := fmt.Sprint(keyvals[i])
-		fields[key] = valueToString(keyvals[i+1])
+		key := strings.TrimSpace(fmt.Sprint(keyvals[i]))
+		if key == "" {
+			continue
+		}
+		fields[key] = keyvals[i+1]
 	}
 
-	keys := make([]string, 0, len(fields))
-	for key := range fields {
-		keys = append(keys, key)
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		log.Printf(`{"timestamp":%q,"level":"ERROR","service":%q,"message":"log serialization failed","error":%q}`, time.Now().UTC().Format(time.RFC3339), service, err.Error())
+		return
 	}
-	sort.Strings(keys)
 
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%q", key, fields[key]))
-	}
-	log.Println(strings.Join(parts, " "))
-}
-
-func valueToString(v any) string {
-	switch value := v.(type) {
-	case string:
-		return value
-	case int:
-		return strconv.Itoa(value)
-	case int64:
-		return strconv.FormatInt(value, 10)
-	default:
-		return fmt.Sprint(value)
-	}
+	log.Println(string(encoded))
 }

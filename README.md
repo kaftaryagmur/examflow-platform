@@ -16,7 +16,7 @@ Sistem; Go servisleri, Docker image'lari, Google Pub/Sub, MongoDB, Artifact Regi
 Temel uygulama akisi:
 
 ```text
-API -> Pub/Sub event -> Worker -> Validation -> Exam Service -> MongoDB
+User JWT -> API -> Pub/Sub event -> Worker -> Validation -> Exam Service -> MongoDB
 ```
 
 Cloud bilesenleri:
@@ -26,6 +26,10 @@ Cloud bilesenleri:
 - Google Pub/Sub
 - MongoDB persistent volume ile Kubernetes icinde calisan veri katmani
 - Google Compute Engine uzerinde Jenkins
+
+Domain veri modeli ayrintilari icin:
+
+- [docs/data-models.md](docs/data-models.md)
 
 ## Dizin Yapisi
 
@@ -104,7 +108,21 @@ mongodb
 
 API service acilis sirasinda MongoDB baglantisini kontrol eder, `connection_checks` collection'i uzerinden insert/read dogrulamasi yapar ve sonucu loglar. `/ready` endpoint'i MongoDB ping sonucunu `databaseStatus` alani ile raporlar.
 
-Exam service, `document.validated` eventlerinden olusan exam state kayitlarini `exams` collection'ina yazar. MongoDB verisi `mongodb-data` PVC uzerinde tutuldugu icin pod restart durumunda veri korunur.
+Exam service, `exam.validation.completed` eventlerinden olusan exam state kayitlarini `exams` collection'ina yazar. MongoDB verisi `mongodb-data` PVC uzerinde tutuldugu icin pod restart durumunda veri korunur.
+
+SCRUM-27 kapsaminda temel collection modeli su sekilde konumlandirilir:
+
+```text
+users      -> kullanici hesabi ve auth sonrasi profil bilgileri
+documents  -> kullaniciya ait dokuman kayitlari ve islenme durumu
+exams      -> document/validation akisi sonucunda olusan exam state kayitlari
+```
+
+Detayli alan listesi ve iliski notlari [docs/data-models.md](docs/data-models.md) icinde tutulur.
+
+SCRUM-32 kapsaminda `/publish` endpoint'i protected hale getirilir. JWT icindeki `userId`, `document.uploaded` event'ine eklenir ve worker/validation zinciri boyunca korunarak exam-service tarafinda `exams.userId` alanina yazilir.
+
+SCRUM-34 kapsaminda `/publish`, event yayinlamadan once MongoDB `documents` collection'inda `uploaded` durumunda kullaniciya ait bir dokuman kaydi olusturur. Bu sayede dokuman archive ekranlari icin kalici veri zemini hazirlanir.
 
 ## Lokal Testler
 
@@ -123,6 +141,37 @@ go test ./...
 cd ..\exam-service
 go test ./...
 ```
+
+## Auth Endpointleri
+
+SCRUM-26 kapsaminda register/login altyapisi API service icinde baslatilmistir. Kullanici kayitlari `users` collection'ina yazilir ve parola duz metin olarak saklanmaz.
+SCRUM-31 kapsaminda login yaniti JWT tabanli hale getirilmis ve protected endpoint icin auth middleware eklenmistir. JWT imza anahtari `JWT_SECRET` olarak Kubernetes Secret uzerinden inject edilir.
+
+Register:
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8080/auth/register `
+  -H "Content-Type: application/json" `
+  -d "{\"email\":\"teacher@example.com\",\"displayName\":\"Teacher User\",\"password\":\"strongpass\"}"
+```
+
+Login:
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8080/auth/login `
+  -H "Content-Type: application/json" `
+  -d "{\"email\":\"teacher@example.com\",\"password\":\"strongpass\"}"
+```
+
+Login basarili oldugunda JWT token doner. Protected endpoint'lere erisim icin standart Bearer token header'i kullanilir:
+
+```powershell
+$Token = "<login-response-token>"
+curl.exe http://127.0.0.1:8080/auth/me `
+  -H "Authorization: Bearer $Token"
+```
+
+Eksik, hatali veya expire olmus token durumunda API `401 Unauthorized` doner.
 
 ## Development Ortamini Acma
 
@@ -395,6 +444,8 @@ Demo UI ile:
 - `/ready` kontrolu yapilabilir.
 - `/publish` istegi gonderilebilir.
 - Backend response bilgisi gorulebilir.
+
+Not: `/publish` protected endpoint oldugu icin once register/login akisi ile JWT alinmali ve istek `Authorization: Bearer <token>` header'i ile gonderilmelidir.
 
 ## CI/CD Akisi
 

@@ -31,6 +31,7 @@ func (p *fakePublisher) Publish(ctx context.Context, msg *pubsub.Message) publis
 func TestProcessEventBuildsVisibleResult(t *testing.T) {
 	result := processEvent(Event{
 		DocumentID: "doc-7",
+		UserID:     "user-7",
 		FileName:   "lecture-1.pdf",
 	})
 
@@ -40,6 +41,9 @@ func TestProcessEventBuildsVisibleResult(t *testing.T) {
 	if result.Status != "processed" {
 		t.Fatalf("expected processed status, got %s", result.Status)
 	}
+	if result.UserID != "user-7" {
+		t.Fatalf("expected user-7, got %s", result.UserID)
+	}
 	if result.SummaryPreview == "" {
 		t.Fatal("expected summary preview to be populated")
 	}
@@ -48,6 +52,7 @@ func TestProcessEventBuildsVisibleResult(t *testing.T) {
 func TestBuildProcessedEventReturnsExpectedFields(t *testing.T) {
 	result := ProcessingResult{
 		DocumentID:     "doc-123",
+		UserID:         "user-123",
 		Status:         "processed",
 		SummaryPreview: "Processed document doc-123 from file.pdf",
 		ProcessedAt:    "2026-05-02T12:30:00Z",
@@ -63,6 +68,9 @@ func TestBuildProcessedEventReturnsExpectedFields(t *testing.T) {
 	}
 	if event.DocumentID != "doc-123" {
 		t.Fatalf("expected doc-123, got %q", event.DocumentID)
+	}
+	if event.UserID != "user-123" {
+		t.Fatalf("expected user-123, got %q", event.UserID)
 	}
 	if event.Status != "processed" {
 		t.Fatalf("expected processed, got %q", event.Status)
@@ -105,6 +113,7 @@ func TestPublishProcessedEventPublishesPayload(t *testing.T) {
 
 	result := ProcessingResult{
 		DocumentID:     "doc-123",
+		UserID:         "user-123",
 		Status:         "processed",
 		SummaryPreview: "Processed document doc-123 from file.pdf",
 		ProcessedAt:    "2026-05-02T12:30:00Z",
@@ -120,6 +129,9 @@ func TestPublishProcessedEventPublishesPayload(t *testing.T) {
 
 	if !bytes.Contains(pub.lastPayload, []byte(`"documentId":"doc-123"`)) {
 		t.Fatalf("expected documentId in payload, got %s", string(pub.lastPayload))
+	}
+	if !bytes.Contains(pub.lastPayload, []byte(`"userId":"user-123"`)) {
+		t.Fatalf("expected userId in payload, got %s", string(pub.lastPayload))
 	}
 }
 

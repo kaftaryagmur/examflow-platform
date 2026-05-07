@@ -7,8 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +17,10 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
+func init() {
+	log.SetFlags(0)
+}
+
 type healthResponse struct {
 	Status    string `json:"status"`
 	Service   string `json:"service"`
@@ -28,45 +30,10 @@ type healthResponse struct {
 type validatedEvent struct {
 	EventID          string `json:"eventId,omitempty"`
 	DocumentID       string `json:"documentId"`
+	UserID           string `json:"userId"`
 	EventType        string `json:"eventType"`
 	ValidationResult string `json:"validationResult"`
 	Timestamp        string `json:"timestamp"`
-}
-
-type Exam struct {
-	ID               bson.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
-	DocumentID       string        `bson:"documentId" json:"documentId"`
-	ValidationResult string        `bson:"validationResult" json:"validationResult"`
-	Status           string        `bson:"status" json:"status"`
-	CreatedAt        string        `bson:"createdAt" json:"createdAt"`
-}
-
-const (
-	examStatusDraft      = "draft"
-	examStatusProcessing = "processing"
-	examStatusValidated  = "validated"
-	examStatusPublished  = "published"
-	examStatusFailed     = "failed"
-
-	examStatusCreated = examStatusDraft
-	examStatusReady   = examStatusValidated
-)
-
-var validExamTransitions = map[string]map[string]bool{
-	examStatusDraft: {
-		examStatusProcessing: true,
-		examStatusFailed:     true,
-	},
-	examStatusProcessing: {
-		examStatusValidated: true,
-		examStatusFailed:    true,
-	},
-	examStatusValidated: {
-		examStatusPublished: true,
-		examStatusFailed:    true,
-	},
-	examStatusPublished: {},
-	examStatusFailed:    {},
 }
 
 type examMessage interface {
@@ -115,15 +82,18 @@ func main() {
 		logKV("warn", "exam-service", "mongodb connection unavailable", "error", err.Error())
 	} else if mongoClient != nil {
 		defer mongoClient.Disconnect(context.Background())
-		exams = mongoExamStore{collection: mongoDatabase.Collection("exams")}
+		exams = mongoExamStore{collection: mongoDatabase.Collection(examsCollection)}
 		logKV("info", "exam-service", "mongodb connection ready", "database", mongoDatabase.Name())
 	}
 
 	handler := newServer()
 	go startConsumer(context.Background(), projectID, subscriptionID)
 
-	log.Printf("service=%q msg=%q port=%q", "exam-service", "listening", port)
-	log.Fatal(http.ListenAndServe(":"+port, handler))
+	logKV("info", "exam-service", "listening", "port", port)
+	if err := http.ListenAndServe(":"+port, handler); err != nil {
+		logKV("error", "exam-service", "http server stopped", "error", err.Error())
+		os.Exit(1)
+	}
 }
 
 func newServer() http.Handler {
@@ -248,6 +218,7 @@ func parseValidatedEvent(data []byte) (validatedEvent, error) {
 
 	event.EventID = strings.TrimSpace(event.EventID)
 	event.DocumentID = strings.TrimSpace(event.DocumentID)
+	event.UserID = strings.TrimSpace(event.UserID)
 	event.EventType = strings.TrimSpace(event.EventType)
 	event.ValidationResult = strings.TrimSpace(event.ValidationResult)
 	event.Timestamp = strings.TrimSpace(event.Timestamp)
@@ -268,13 +239,22 @@ func buildExam(event validatedEvent) (Exam, error) {
 		return Exam{}, err
 	}
 
-	return Exam{
+	exam := Exam{
 		ID:               bson.NewObjectID(),
 		DocumentID:       event.DocumentID,
 		ValidationResult: event.ValidationResult,
 		Status:           status,
 		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
-	}, nil
+	}
+	if event.UserID != "" {
+		userID, err := bson.ObjectIDFromHex(event.UserID)
+		if err != nil {
+			return Exam{}, fmt.Errorf("invalid userId %q", event.UserID)
+		}
+		exam.UserID = userID
+	}
+
+	return exam, nil
 }
 
 func loadMongoDBConfig() (mongoDBConfig, bool) {
@@ -354,39 +334,26 @@ func transitionExamStatus(current, next string) (string, error) {
 }
 
 func logKV(level, service, msg string, keyvals ...any) {
-	fields := map[string]string{
-		"level":   level,
-		"service": service,
-		"msg":     msg,
+	fields := map[string]any{
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"level":     strings.ToUpper(level),
+		"service":   service,
+		"message":   msg,
 	}
 
 	for i := 0; i+1 < len(keyvals); i += 2 {
-		key := fmt.Sprint(keyvals[i])
-		fields[key] = valueToString(keyvals[i+1])
+		key := strings.TrimSpace(fmt.Sprint(keyvals[i]))
+		if key == "" {
+			continue
+		}
+		fields[key] = keyvals[i+1]
 	}
 
-	keys := make([]string, 0, len(fields))
-	for key := range fields {
-		keys = append(keys, key)
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		log.Printf(`{"timestamp":%q,"level":"ERROR","service":%q,"message":"log serialization failed","error":%q}`, time.Now().UTC().Format(time.RFC3339), service, err.Error())
+		return
 	}
-	sort.Strings(keys)
 
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%q", key, fields[key]))
-	}
-	log.Println(strings.Join(parts, " "))
-}
-
-func valueToString(v any) string {
-	switch value := v.(type) {
-	case string:
-		return value
-	case int:
-		return strconv.Itoa(value)
-	case int64:
-		return strconv.FormatInt(value, 10)
-	default:
-		return fmt.Sprint(value)
-	}
+	log.Println(string(encoded))
 }

@@ -44,6 +44,11 @@ type fakeDocumentStore struct {
 	err       error
 }
 
+type fakeExamStore struct {
+	exams []Exam
+	err   error
+}
+
 var testAuth = authService{
 	secret: []byte("test-jwt-secret-with-enough-length"),
 	ttl:    time.Hour,
@@ -124,12 +129,26 @@ func (f *fakeDocumentStore) CreateDocument(_ context.Context, document Document)
 	return document, nil
 }
 
+func (f *fakeDocumentStore) ListDocuments(context.Context, string) ([]Document, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.documents, nil
+}
+
+func (f *fakeExamStore) ListExams(context.Context, string) ([]Exam, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.exams, nil
+}
+
 func TestPublishRequiresDocumentID(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/publish", bytes.NewBufferString(`{"fileName":"notes.pdf"}`))
 	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -143,7 +162,7 @@ func TestPublishReturnsAcceptedResponse(t *testing.T) {
 
 	fake := &fakePublisher{result: fakePublishResult{id: "msg-123"}}
 	documents := &fakeDocumentStore{}
-	newServer(context.Background(), fake, "pubsub", nil, nil, documents, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), fake, "pubsub", nil, nil, documents, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -177,7 +196,7 @@ func TestPublishRequiresBearerToken(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/publish", bytes.NewBufferString(`{"documentId":"doc-42","fileName":"week1.pdf","source":"web"}`))
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
@@ -189,7 +208,7 @@ func TestPublishRequiresDocumentStore(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", rec.Code)
@@ -202,10 +221,88 @@ func TestPublishReturnsErrorWhenDocumentPersistenceFails(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	documents := &fakeDocumentStore{err: errors.New("insert failed")}
-	newServer(context.Background(), nil, "mock", nil, nil, documents, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, nil, documents, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+}
+
+func TestListDocumentsReturnsPersistedRecords(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/documents", nil)
+	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
+	rec := httptest.NewRecorder()
+
+	documents := &fakeDocumentStore{documents: []Document{
+		{
+			ID:         bson.NewObjectID(),
+			UserID:     bson.NewObjectID(),
+			DocumentID: "doc-42",
+			FileName:   "week1.pdf",
+			Source:     "web",
+			Status:     documentStatusUploaded,
+			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+			UpdatedAt:  time.Now().UTC().Format(time.RFC3339),
+		},
+	}}
+	newServer(context.Background(), nil, "mock", nil, nil, documents, nil, testAuth, true).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"documents"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"documentId":"doc-42"`)) {
+		t.Fatalf("expected persisted document in response, got %s", rec.Body.String())
+	}
+}
+
+func TestListDocumentsRequiresStore(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/documents", nil)
+	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
+	rec := httptest.NewRecorder()
+
+	newServer(context.Background(), nil, "mock", nil, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", rec.Code)
+	}
+}
+
+func TestListExamsReturnsPersistedRecords(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/exams", nil)
+	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
+	rec := httptest.NewRecorder()
+
+	exams := &fakeExamStore{exams: []Exam{
+		{
+			ID:               bson.NewObjectID(),
+			UserID:           bson.NewObjectID(),
+			DocumentID:       "doc-42",
+			Title:            "Exam for doc-42",
+			ValidationResult: "valid",
+			Status:           "created",
+			CreatedAt:        time.Now().UTC().Format(time.RFC3339),
+			UpdatedAt:        time.Now().UTC().Format(time.RFC3339),
+		},
+	}}
+	newServer(context.Background(), nil, "mock", nil, nil, nil, exams, testAuth, true).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"exams"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"documentId":"doc-42"`)) {
+		t.Fatalf("expected persisted exam in response, got %s", rec.Body.String())
+	}
+}
+
+func TestListExamsRequiresStore(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/exams", nil)
+	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
+	rec := httptest.NewRecorder()
+
+	newServer(context.Background(), nil, "mock", nil, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", rec.Code)
 	}
 }
 
@@ -213,7 +310,7 @@ func TestCORSPreflightReturnsNoContent(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/publish", nil)
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", rec.Code)
@@ -231,7 +328,7 @@ func TestReadyReportsMongoDBNotConfigured(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	fake := &fakePublisher{result: fakePublishResult{id: "msg-123"}}
-	newServer(context.Background(), fake, "pubsub", nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), fake, "pubsub", nil, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -249,7 +346,7 @@ func TestReadyReportsMongoDBReady(t *testing.T) {
 
 	fake := &fakePublisher{result: fakePublishResult{id: "msg-123"}}
 	db := fakeDatabase{name: "examflow"}
-	newServer(context.Background(), fake, "pubsub", db, nil, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), fake, "pubsub", db, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -267,7 +364,7 @@ func TestReadyReportsMongoDBUnavailable(t *testing.T) {
 
 	fake := &fakePublisher{result: fakePublishResult{id: "msg-123"}}
 	db := fakeDatabase{name: "examflow", err: errors.New("database unavailable")}
-	newServer(context.Background(), fake, "pubsub", db, nil, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), fake, "pubsub", db, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", rec.Code)
@@ -284,7 +381,7 @@ func TestRegisterCreatesUser(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	users := &fakeUserStore{}
-	newServer(context.Background(), nil, "mock", nil, users, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, users, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -307,11 +404,11 @@ func TestRegisterCreatesUser(t *testing.T) {
 func TestRegisterRejectsDuplicateEmail(t *testing.T) {
 	users := &fakeUserStore{}
 	first := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewBufferString(`{"email":"teacher@example.com","displayName":"Teacher User","password":"strongpass"}`))
-	newServer(context.Background(), nil, "mock", nil, users, nil, testAuth, true).ServeHTTP(httptest.NewRecorder(), first)
+	newServer(context.Background(), nil, "mock", nil, users, nil, nil, testAuth, true).ServeHTTP(httptest.NewRecorder(), first)
 
 	second := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewBufferString(`{"email":"teacher@example.com","displayName":"Teacher User","password":"strongpass"}`))
 	rec := httptest.NewRecorder()
-	newServer(context.Background(), nil, "mock", nil, users, nil, testAuth, true).ServeHTTP(rec, second)
+	newServer(context.Background(), nil, "mock", nil, users, nil, nil, testAuth, true).ServeHTTP(rec, second)
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", rec.Code)
@@ -322,7 +419,7 @@ func TestRegisterRequiresStrongEnoughPassword(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewBufferString(`{"email":"teacher@example.com","displayName":"Teacher User","password":"short"}`))
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, &fakeUserStore{}, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, &fakeUserStore{}, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -346,7 +443,7 @@ func TestLoginReturnsToken(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBufferString(`{"email":"teacher@example.com","password":"strongpass"}`))
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, users, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, users, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -384,7 +481,7 @@ func TestLoginRejectsWrongPassword(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBufferString(`{"email":"teacher@example.com","password":"wrongpass"}`))
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, users, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, users, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
@@ -395,7 +492,7 @@ func TestAuthEndpointsRequireStore(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewBufferString(`{"email":"teacher@example.com","displayName":"Teacher User","password":"strongpass"}`))
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", rec.Code)
@@ -406,7 +503,7 @@ func TestLoginRequiresConfiguredJWTSecret(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBufferString(`{"email":"teacher@example.com","password":"strongpass"}`))
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, &fakeUserStore{}, nil, authService{}, false).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, &fakeUserStore{}, nil, nil, authService{}, false).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", rec.Code)
@@ -417,7 +514,7 @@ func TestAuthMeRequiresBearerToken(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
@@ -429,7 +526,7 @@ func TestAuthMeRejectsInvalidToken(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer invalid-token")
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
@@ -451,7 +548,7 @@ func TestAuthMeReturnsAuthenticatedUser(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())

@@ -26,9 +26,9 @@ type Document struct {
 }
 
 func buildDocumentRecord(req PublishRequest, userID string) (Document, error) {
-	userObjectID, err := bson.ObjectIDFromHex(strings.TrimSpace(userID))
+	userObjectID, err := objectIDFromUserID(userID)
 	if err != nil {
-		return Document{}, fmt.Errorf("invalid userId %q", userID)
+		return Document{}, err
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -42,4 +42,12 @@ func buildDocumentRecord(req PublishRequest, userID string) (Document, error) {
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}, nil
+}
+
+func objectIDFromUserID(userID string) (bson.ObjectID, error) {
+	userObjectID, err := bson.ObjectIDFromHex(strings.TrimSpace(userID))
+	if err != nil {
+		return bson.ObjectID{}, fmt.Errorf("invalid userId %q", userID)
+	}
+	return userObjectID, nil
 }

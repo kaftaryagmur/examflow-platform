@@ -47,7 +47,7 @@ exams
 | Field | Type | Description |
 | --- | --- | --- |
 | `_id` | ObjectId | MongoDB primary key |
-| `userId` | ObjectId | Sinav sahibi kullanici, auth/ownership sonrasi zorunlu olacak |
+| `userId` | ObjectId | Sinav sahibi kullanici |
 | `documentId` | string | Sinavin uretildigi document referansi |
 | `title` | string | Opsiyonel sinav basligi |
 | `validationResult` | string | `valid`, `invalid`, `passed`, `failed` |
@@ -63,7 +63,7 @@ User 1 -> N Exam
 Document 1 -> N Exam
 ```
 
-MongoDB dokuman modeli kullanildigi icin iliskiler foreign key constraint ile degil, `ObjectId` referanslari ve uygulama seviyesindeki kontrol ile yonetilir. SCRUM-32 kapsaminda bu referanslar ownership kurallariyla guclendirilecektir.
+MongoDB dokuman modeli kullanildigi icin iliskiler foreign key constraint ile degil, `ObjectId` referanslari ve uygulama seviyesindeki kontrol ile yonetilir. SCRUM-32 kapsaminda bu referanslar ownership kurallariyla guclendirilmistir.
 
 ## Ownership Flow
 
@@ -80,3 +80,14 @@ JWT userId
 ```
 
 Bu akista `userId`, API tarafinda protected endpoint middleware'i ile dogrulanmis kullanici context'inden alinir. API, `/publish` istegi sirasinda `documents` collection'ina kullanici sahipligi bulunan `uploaded` durumunda bir dokuman kaydi yazar. Worker ve validation servisleri bu bilgiyi event payload'i icinde korur. Exam service, gelen `userId` degerini MongoDB `ObjectId` formatinda dogrulayarak `exams.userId` alanina yazar.
+
+## Persistence Read Flow
+
+SCRUM-40 kapsaminda API service, JWT ile dogrulanmis kullanicinin kalici kayitlarini MongoDB uzerinden okur.
+
+```text
+GET /documents -> documents.find({ userId: JWT userId })
+GET /exams     -> exams.find({ userId: JWT userId })
+```
+
+Bu endpointler sayesinde document ve exam kayitlari yalnizca event loglari ile degil, MongoDB collection'lari uzerinden create/read akisiyle de dogrulanabilir.

@@ -124,6 +124,8 @@ SCRUM-32 kapsaminda `/publish` endpoint'i protected hale getirilir. JWT icindeki
 
 SCRUM-34 kapsaminda `/publish`, event yayinlamadan once MongoDB `documents` collection'inda `uploaded` durumunda kullaniciya ait bir dokuman kaydi olusturur. Bu sayede dokuman archive ekranlari icin kalici veri zemini hazirlanir.
 
+SCRUM-40 kapsaminda API service, MongoDB uzerinden kullaniciya ait kalici `documents` ve `exams` kayitlarini okuyabilen protected endpointler sunar. Bu sayede document create/read ve exam create/read akislarinin veritabani uzerinden dogrulanmasi mumkun hale gelir.
+
 ## Lokal Testler
 
 Her servis kendi Go modulu olarak test edilebilir:
@@ -172,6 +174,24 @@ curl.exe http://127.0.0.1:8080/auth/me `
 ```
 
 Eksik, hatali veya expire olmus token durumunda API `401 Unauthorized` doner.
+
+## Persistence Endpointleri
+
+Protected endpoint'ler JWT icindeki `userId` alanini kullanarak sadece ilgili kullaniciya ait kayitlari dondurur.
+
+Kullaniciya ait document kayitlarini listele:
+
+```powershell
+curl.exe http://127.0.0.1:8080/documents `
+  -H "Authorization: Bearer $Token"
+```
+
+Kullaniciya ait exam kayitlarini listele:
+
+```powershell
+curl.exe http://127.0.0.1:8080/exams `
+  -H "Authorization: Bearer $Token"
+```
 
 ## Development Ortamini Acma
 

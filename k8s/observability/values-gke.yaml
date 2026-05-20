@@ -1,0 +1,40 @@
+grafana:
+  enabled: true
+  adminUser: admin
+  defaultDashboardsTimezone: Europe/Istanbul
+
+  service:
+    type: ClusterIP
+
+  persistence:
+    enabled: false
+
+prometheus:
+  enabled: true
+
+  prometheusSpec:
+    retention: 7d
+    scrapeInterval: 30s
+
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+    serviceMonitorNamespaceSelector: {}
+    podMonitorNamespaceSelector: {}
+    ruleNamespaceSelector: {}
+
+alertmanager:
+  enabled: true
+
+kubeEtcd:
+  enabled: false
+
+kubeControllerManager:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+kubeProxy:
+  enabled: false

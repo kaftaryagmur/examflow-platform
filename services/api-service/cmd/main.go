@@ -95,9 +95,18 @@ type mongoUserStore struct {
 
 type documentStore interface {
 	CreateDocument(context.Context, Document) (Document, error)
+	ListDocuments(context.Context, string) ([]Document, error)
 }
 
 type mongoDocumentStore struct {
+	collection *mongo.Collection
+}
+
+type examStore interface {
+	ListExams(context.Context, string) ([]Exam, error)
+}
+
+type mongoExamStore struct {
 	collection *mongo.Collection
 }
 
@@ -133,6 +142,7 @@ func main() {
 
 	var users userStore
 	var documents documentStore
+	var exams examStore
 	db, err := connectMongoDB(ctx)
 	if err != nil {
 		logKV("warn", "api-service", "mongodb connection unavailable", "error", err.Error())
@@ -146,6 +156,7 @@ func main() {
 		if mongoDB, ok := db.(*mongoDatabaseClient); ok {
 			users = mongoUserStore{collection: mongoDB.database.Collection(usersCollection)}
 			documents = mongoDocumentStore{collection: mongoDB.database.Collection(documentsCollection)}
+			exams = mongoExamStore{collection: mongoDB.database.Collection(examsCollection)}
 			if err := ensureUserIndexes(ctx, users); err != nil {
 				logKV("warn", "api-service", "mongodb user index setup failed", "database", db.Name(), "error", err.Error())
 			}
@@ -157,7 +168,7 @@ func main() {
 		logKV("warn", "api-service", "jwt secret not configured, auth endpoints degraded")
 	}
 
-	handler := newServer(ctx, pub, mode, db, users, documents, auth, authConfigured)
+	handler := newServer(ctx, pub, mode, db, users, documents, exams, auth, authConfigured)
 
 	logKV("info", "api-service", "listening", "port", port, "mode", mode)
 	if err := http.ListenAndServe(":"+port, handler); err != nil {
@@ -166,7 +177,7 @@ func main() {
 	}
 }
 
-func newServer(ctx context.Context, pub publisher, mode string, db databaseClient, users userStore, documents documentStore, auth authService, authConfigured bool) http.Handler {
+func newServer(ctx context.Context, pub publisher, mode string, db databaseClient, users userStore, documents documentStore, exams examStore, auth authService, authConfigured bool) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -290,6 +301,64 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 		mux.HandleFunc("/publish", func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
 			return
+		})
+	}
+
+	listDocumentsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authPrincipalFromContext(r.Context())
+		if !ok {
+			http.Error(w, "auth context unavailable", http.StatusUnauthorized)
+			return
+		}
+		if documents == nil {
+			http.Error(w, "document store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		records, err := documents.ListDocuments(r.Context(), claims.UserID)
+		if err != nil {
+			logKV("error", "api-service", "document read failed", "endpoint", "/documents", "user_id", claims.UserID, "error", err.Error())
+			http.Error(w, "document read failed", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"documents": records})
+	})
+
+	listExamsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authPrincipalFromContext(r.Context())
+		if !ok {
+			http.Error(w, "auth context unavailable", http.StatusUnauthorized)
+			return
+		}
+		if exams == nil {
+			http.Error(w, "exam store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		records, err := exams.ListExams(r.Context(), claims.UserID)
+		if err != nil {
+			logKV("error", "api-service", "exam read failed", "endpoint", "/exams", "user_id", claims.UserID, "error", err.Error())
+			http.Error(w, "exam read failed", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"exams": records})
+	})
+
+	if authConfigured {
+		mux.Handle("/documents", auth.RequireAuth(listDocumentsHandler))
+		mux.Handle("/exams", auth.RequireAuth(listExamsHandler))
+	} else {
+		mux.HandleFunc("/documents", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
+		})
+		mux.HandleFunc("/exams", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
 		})
 	}
 
@@ -557,6 +626,58 @@ func (store mongoDocumentStore) CreateDocument(ctx context.Context, document Doc
 	return document, nil
 }
 
+func (store mongoDocumentStore) ListDocuments(ctx context.Context, userID string) ([]Document, error) {
+	userObjectID, err := objectIDFromUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	findCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cursor, err := store.collection.Find(
+		findCtx,
+		bson.M{"userId": userObjectID},
+		options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(findCtx)
+
+	var documents []Document
+	if err := cursor.All(findCtx, &documents); err != nil {
+		return nil, err
+	}
+	return documents, nil
+}
+
+func (store mongoExamStore) ListExams(ctx context.Context, userID string) ([]Exam, error) {
+	userObjectID, err := objectIDFromUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	findCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cursor, err := store.collection.Find(
+		findCtx,
+		bson.M{"userId": userObjectID},
+		options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(findCtx)
+
+	var exams []Exam
+	if err := cursor.All(findCtx, &exams); err != nil {
+		return nil, err
+	}
+	return exams, nil
+}
+
 func ensureUserIndexes(ctx context.Context, users userStore) error {
 	store, ok := users.(mongoUserStore)
 	if !ok {
@@ -601,7 +722,7 @@ func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

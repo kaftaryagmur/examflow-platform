@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    color: #f8fafc;
+    background:
+      linear-gradient(120deg, rgba(139, 92, 246, 0.18), transparent 26%),
+      linear-gradient(280deg, rgba(6, 182, 212, 0.16), transparent 30%),
+      repeating-linear-gradient(90deg, rgba(148, 163, 184, 0.045) 0 1px, transparent 1px 80px),
+      repeating-linear-gradient(0deg, rgba(148, 163, 184, 0.035) 0 1px, transparent 1px 80px),
+      #090616;
+    font-family:
+      Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+      sans-serif;
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-lg border border-space-line bg-space-panel/80 shadow-panel backdrop-blur-md;
+  }
+
+  .btn {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-md border border-transparent px-4 text-sm font-semibold transition;
+  }
+
+  .btn-primary {
+    @apply bg-gradient-to-r from-cyber-purple to-neon-magenta text-white shadow-neon-purple hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply border-space-line bg-white/5 text-ink hover:border-neon-cyan/60 hover:bg-neon-cyan/10 disabled:cursor-not-allowed disabled:text-muted;
+  }
+
+  .field {
+    @apply h-10 w-full rounded-md border border-space-line bg-black/30 px-3 text-sm text-ink outline-none transition placeholder:text-muted focus:border-neon-cyan focus:ring-2 focus:ring-neon-cyan/20;
+  }
+
+  .label {
+    @apply text-xs font-semibold uppercase tracking-normal text-muted;
+  }
+
+  .glass-grid {
+    background:
+      linear-gradient(135deg, rgba(139, 92, 246, 0.14), rgba(6, 182, 212, 0.07)),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  }
+}

@@ -1,36 +1,60 @@
 # Demo UI
 
-Bu klasor, ExamFlow projesi icin demo amacli hafif arayuzu barindirir.
+Bu klasor, ExamFlow sunumu icin React + Vite + Tailwind tabanli demo dashboard arayuzunu barindirir.
 
 Mevcut kapsam:
 
-- `/publish` akisini form uzerinden tetikleme
 - `/health` ve `/ready` durumlarini gosterme
-- backend response bilgisini ekranda sunma
-
-## Dosyalar
-
-- `index.html`: demo ekraninin iskeleti
-- `styles.css`: demo arayuzunun stilleri
-- `app.js`: API cagrilari ve ekran davranislari
+- login formu gostermeden demo kullanici session'i olusturma
+- JWT ile protected `/publish` akisini tetikleme
+- kullaniciya ait `/documents` ve `/exams` kayitlarini listeleme
+- Dashboard, Documents ve Exams arasinda navigation saglama
+- son API yanitini ve demo akis adimlarini ekranda gosterme
 
 ## Lokal kullanim
 
-API'yi ayaga kaldirdiktan sonra bu klasor icinde basit bir statik sunucu calistir:
-
 ```powershell
 cd C:\examflow-platform\demo-ui
-python -m http.server 5500
+npm install
+npm run dev
 ```
 
-Ardindan tarayicida:
+Varsayilan API adresi Vite dev proxy uzerinden gelir:
 
-- `http://127.0.0.1:5500`
+```text
+/api
+```
 
-ekranini ac.
+Proxy hedefi:
 
-Varsayilan API adresi:
+```text
+http://127.0.0.1:8080
+```
 
-- `http://127.0.0.1:8080`
+Demo session akisi API uzerinde `/auth/register` ve `/auth/login` endpoint'lerini kullanir. Bu nedenle `api-service` icin MongoDB ve `JWT_SECRET` ayarlari hazir olmalidir.
 
-Bu nedenle demo ekranini kullanmadan once `api-service` ayakta olmalidir.
+## API baglantisi
+
+GKE uzerindeki API servisine lokal port-forward ac:
+
+```powershell
+kubectl port-forward service/api-service 8080:80 -n examflow
+```
+
+Ardindan UI icinde varsayilan API Base URL degeri kullanilabilir:
+
+```text
+/api
+```
+
+## Demo dogrulama akisi
+
+1. UI'i `npm run dev` ile ac.
+2. API icin `kubectl port-forward` calistir.
+3. Dashboard ekraninda `/health` ve `/ready` durumlarini kontrol et.
+4. `Demo Baslat` ile otomatik demo kullanici session'i olustur.
+5. Dosya sec veya varsayilan demo dosyasi ile `Gonder` butonuna bas.
+6. Documents ekraninda yeni document kaydini kontrol et.
+7. Exam processing tamamlandiktan sonra Exams ekraninda kaydi kontrol et.
+
+Not: Bu sprintte UI dosyanin binary icerigini upload etmez; backend'in mevcut `/publish` kontratina uygun olarak `documentId`, `fileName` ve `source` alanlari ile document event olusturur.

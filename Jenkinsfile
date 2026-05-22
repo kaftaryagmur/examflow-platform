@@ -233,10 +233,13 @@ pipeline {
                 sh '''
                     cd k8s/overlays/prod
 
+                    echo "Pinning kustomize image tags to build: $IMAGE_TAG"
+                    sed -i "s/newTag: latest/newTag: $IMAGE_TAG/g" kustomization.yaml
+
                     echo "Rendered manifest preview:"
                     kubectl kustomize .
 
-                    echo "Exam service deployment manifest is included and image override is applied through kustomize."
+                    echo "Service deployment manifests are rendered with build-specific image tags."
 
                     kubectl apply -k .
 
@@ -272,6 +275,20 @@ pipeline {
                     sleep 10
 
                     curl -f http://127.0.0.1:8080/health
+
+                    DOCUMENTS_STATUS="$(curl -s -o /tmp/documents-smoke.txt -w "%{http_code}" http://127.0.0.1:8080/documents)"
+                    if [ "$DOCUMENTS_STATUS" != "401" ]; then
+                        echo "Expected /documents to exist and require auth with 401, got $DOCUMENTS_STATUS"
+                        cat /tmp/documents-smoke.txt
+                        exit 1
+                    fi
+
+                    EXAMS_STATUS="$(curl -s -o /tmp/exams-smoke.txt -w "%{http_code}" http://127.0.0.1:8080/exams)"
+                    if [ "$EXAMS_STATUS" != "401" ]; then
+                        echo "Expected /exams to exist and require auth with 401, got $EXAMS_STATUS"
+                        cat /tmp/exams-smoke.txt
+                        exit 1
+                    fi
 
                     kubectl port-forward service/validation-service 8081:80 -n $NAMESPACE >/tmp/validation-port-forward.log 2>&1 &
                     VF_PID=$!

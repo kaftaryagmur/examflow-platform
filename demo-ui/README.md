@@ -1,60 +1,83 @@
 # Demo UI
 
-Bu klasor, ExamFlow sunumu icin React + Vite + Tailwind tabanli demo dashboard arayuzunu barindirir.
+Bu klasor ExamFlow sunumu icin React + Vite + Tailwind tabanli demo arayuzunu barindirir.
 
-Mevcut kapsam:
+## Kapsam
 
+- `/demo/` altinda calisan public demo UI
 - `/health` ve `/ready` durumlarini gosterme
-- login formu gostermeden demo kullanici session'i olusturma
-- JWT ile protected `/publish` akisini tetikleme
-- kullaniciya ait `/documents` ve `/exams` kayitlarini listeleme
-- Dashboard, Documents ve Exams arasinda navigation saglama
-- son API yanitini ve demo akis adimlarini ekranda gosterme
+- demo kullanici icin register/login akisi
+- JWT ile protected `/publish` istegi gonderme
+- `/documents` ve `/exams` kayitlarini listeleme
+- publish sonrasi received, processing, validated, published ve failed state takibi
 
 ## Lokal kullanim
 
-```powershell
-cd C:\examflow-platform\demo-ui
-npm install
-npm run dev
-```
-
-Varsayilan API adresi Vite dev proxy uzerinden gelir:
-
-```text
-/api
-```
-
-Proxy hedefi:
-
-```text
-http://127.0.0.1:8080
-```
-
-Demo session akisi API uzerinde `/auth/register` ve `/auth/login` endpoint'lerini kullanir. Bu nedenle `api-service` icin MongoDB ve `JWT_SECRET` ayarlari hazir olmalidir.
-
-## API baglantisi
-
-GKE uzerindeki API servisine lokal port-forward ac:
+API servisine port-forward ac:
 
 ```powershell
 kubectl port-forward service/api-service 8080:80 -n examflow
 ```
 
-Ardindan UI icinde varsayilan API Base URL degeri kullanilabilir:
+UI'i calistir:
+
+```powershell
+cd demo-ui
+npm install
+npm run dev
+```
+
+Tarayicida ac:
+
+```text
+http://127.0.0.1:5173/demo/
+```
+
+Varsayilan API Base URL:
 
 ```text
 /api
 ```
 
-## Demo dogrulama akisi
+Vite dev proxy bu path'i `http://127.0.0.1:8080` adresine yonlendirir.
 
-1. UI'i `npm run dev` ile ac.
-2. API icin `kubectl port-forward` calistir.
-3. Dashboard ekraninda `/health` ve `/ready` durumlarini kontrol et.
-4. `Demo Baslat` ile otomatik demo kullanici session'i olustur.
-5. Dosya sec veya varsayilan demo dosyasi ile `Gonder` butonuna bas.
-6. Documents ekraninda yeni document kaydini kontrol et.
-7. Exam processing tamamlandiktan sonra Exams ekraninda kaydi kontrol et.
+## Production container
 
-Not: Bu sprintte UI dosyanin binary icerigini upload etmez; backend'in mevcut `/publish` kontratina uygun olarak `documentId`, `fileName` ve `source` alanlari ile document event olusturur.
+```powershell
+cd demo-ui
+docker build -t examflow-demo-ui:local .
+docker run --rm -p 5500:8080 examflow-demo-ui:local
+```
+
+Tarayicida:
+
+```text
+http://127.0.0.1:5500/demo/
+```
+
+Container icindeki nginx `/api/` isteklerini Kubernetes icindeki `api-service` servisine proxy'ler.
+
+## Kubernetes
+
+Manifestler:
+
+```text
+k8s/base/demo-ui-deployment.yaml
+k8s/base/demo-ui-service.yaml
+```
+
+Deploy:
+
+```powershell
+kubectl apply -k k8s/overlays/prod
+kubectl rollout status deployment/demo-ui -n examflow
+kubectl get svc demo-ui -n examflow
+```
+
+`demo-ui` service tipi `LoadBalancer` oldugu icin external IP hazir oldugunda demo adresi:
+
+```text
+http://<DEMO_UI_EXTERNAL_IP>/demo/
+```
+
+Not: UI dosya binary'sini upload etmez; backend'in mevcut `/publish` kontratina uygun olarak `documentId`, `fileName` ve `source` alanlari ile event olusturur.

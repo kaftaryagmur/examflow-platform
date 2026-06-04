@@ -13,6 +13,9 @@ resources:
   - api-hpa.yaml
   - api-pdb.yaml
 
+  - demo-ui-deployment.yaml
+  - demo-ui-service.yaml
+
   - exam-service/deployment.yaml
   - exam-service/service.yaml
 

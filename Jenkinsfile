@@ -9,6 +9,7 @@ pipeline {
         IMAGE_EXAM   = "examflow-exam"
         IMAGE_VALIDATION = "examflow-validation"
         IMAGE_WORKER = "examflow-worker"
+        IMAGE_DEMO_UI = "examflow-demo-ui"
         CLUSTER_NAME = "examflow-cluster"
         NAMESPACE    = "examflow"
 
@@ -16,6 +17,7 @@ pipeline {
         EXAM_IMAGE_FULL   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_EXAM}"
         VALIDATION_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_VALIDATION}"
         WORKER_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_WORKER}"
+        DEMO_UI_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_DEMO_UI}"
         IMAGE_TAG         = "${BUILD_NUMBER}"
     }
 
@@ -189,6 +191,25 @@ pipeline {
             }
         }
 
+        stage('Build Demo UI Image') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                    changeRequest()
+                }
+            }
+            steps {
+                dir('demo-ui') {
+                    sh '''
+                        docker build \
+                          -t $DEMO_UI_IMAGE_FULL:$IMAGE_TAG \
+                          -t $DEMO_UI_IMAGE_FULL:latest .
+                    '''
+                }
+            }
+        }
+
         stage('GCP Auth') {
             when {
                 branch 'main'
@@ -218,6 +239,8 @@ pipeline {
                     docker push $VALIDATION_IMAGE_FULL:latest
                     docker push $WORKER_IMAGE_FULL:$IMAGE_TAG
                     docker push $WORKER_IMAGE_FULL:latest
+                    docker push $DEMO_UI_IMAGE_FULL:$IMAGE_TAG
+                    docker push $DEMO_UI_IMAGE_FULL:latest
                 '''
             }
         }
@@ -244,6 +267,7 @@ pipeline {
                     kubectl rollout status deployment/exam-service -n $NAMESPACE        --timeout=180s
                     kubectl rollout status deployment/validation-service -n $NAMESPACE  --timeout=180s
                     kubectl rollout status deployment/worker-service -n $NAMESPACE      --timeout=180s
+                    kubectl rollout status deployment/demo-ui -n $NAMESPACE             --timeout=180s
                 '''
             }
         }
@@ -258,6 +282,7 @@ pipeline {
                     cleanup() {
                         if [ -n "$EF_PID" ]; then kill "$EF_PID" 2>/dev/null || true; wait "$EF_PID" 2>/dev/null || true; fi
                         if [ -n "$VF_PID" ]; then kill "$VF_PID" 2>/dev/null || true; wait "$VF_PID" 2>/dev/null || true; fi
+                        if [ -n "$DU_PID" ]; then kill "$DU_PID" 2>/dev/null || true; wait "$DU_PID" 2>/dev/null || true; fi
                         if [ -n "$PF_PID" ]; then kill "$PF_PID" 2>/dev/null || true; wait "$PF_PID" 2>/dev/null || true; fi
                     }
                     trap cleanup EXIT
@@ -301,6 +326,13 @@ pipeline {
 
                     curl -f http://127.0.0.1:8082/health
 
+                    kubectl port-forward service/demo-ui 5500:80 -n $NAMESPACE >/tmp/demo-ui-port-forward.log 2>&1 &
+                    DU_PID=$!
+
+                    sleep 5
+
+                    curl -f http://127.0.0.1:5500/demo/
+
                     echo "Running MongoDB insert/read smoke test..."
                     MONGO_USER="$(kubectl get secret examflow-secret -n "$NAMESPACE" -o jsonpath='{.data.MONGODB_USERNAME}' | base64 -d)"
                     MONGO_PASSWORD="$(kubectl get secret examflow-secret -n "$NAMESPACE" -o jsonpath='{.data.MONGODB_PASSWORD}' | base64 -d)"
@@ -317,6 +349,9 @@ pipeline {
 
                     kill $VF_PID || true
                     wait $VF_PID || true
+
+                    kill $DU_PID || true
+                    wait $DU_PID || true
 
                     kill $PF_PID || true
                     wait $PF_PID || true

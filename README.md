@@ -445,27 +445,52 @@ API servisine lokal port-forward ac:
 kubectl port-forward service/api-service 8080:80 -n examflow
 ```
 
-Ayrica bir terminalde demo UI'i baslat:
+Ayrica bir terminalde React/Vite demo UI'i baslat:
 
 ```powershell
 cd demo-ui
-python -m http.server 5500
+npm install
+npm run dev
 ```
 
 Tarayicida ac:
 
 ```text
-http://127.0.0.1:5500
+http://127.0.0.1:5173/demo/
 ```
 
 Demo UI ile:
 
 - `/health` kontrolu yapilabilir.
 - `/ready` kontrolu yapilabilir.
+- demo kullanici icin register/login akisi olusturulabilir.
 - `/publish` istegi gonderilebilir.
-- Backend response bilgisi gorulebilir.
+- `/documents` ve `/exams` kayitlari gorulebilir.
+- received, processing, validated, published ve failed state'leri takip edilebilir.
 
 Not: `/publish` protected endpoint oldugu icin once register/login akisi ile JWT alinmali ve istek `Authorization: Bearer <token>` header'i ile gonderilmelidir.
+
+Demo UI container image'i:
+
+```powershell
+cd demo-ui
+docker build -t examflow-demo-ui:local .
+docker run --rm -p 5500:8080 examflow-demo-ui:local
+```
+
+Container demo adresi:
+
+```text
+http://127.0.0.1:5500/demo/
+```
+
+Kubernetes uzerinde `demo-ui` Deployment ve LoadBalancer Service manifestleri `k8s/base` altindadir. Public endpoint icin:
+
+```powershell
+kubectl apply -k k8s/overlays/prod
+kubectl rollout status deployment/demo-ui -n examflow
+kubectl get svc demo-ui -n examflow
+```
 
 ## CI/CD Akisi
 

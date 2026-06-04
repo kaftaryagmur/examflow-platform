@@ -16,7 +16,7 @@ spec:
       serviceAccountName: examflow-ksa
       containers:
         - name: worker-service
-          image: europe-west1-docker.pkg.dev/bitirme-pubsub/examflow-images/examflow-worker:latest
+          image: europe-west1-docker.pkg.dev/project-ae272ac8-a64f-4afa-8b7/examflow-images/examflow-worker:latest
           imagePullPolicy: Always
           env:
             - name: GCP_PROJECT_ID

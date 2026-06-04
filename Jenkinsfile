@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        PROJECT_ID   = "bitirme-pubsub"
+        PROJECT_ID   = "project-ae272ac8-a64f-4afa-8b7"
         REGION       = "europe-west1"
         REPOSITORY   = "examflow-images"
         IMAGE_API    = "examflow-api"
@@ -194,16 +194,13 @@ pipeline {
                 branch 'main'
             }
             steps {
-                withCredentials([file(credentialsId: 'gcp-sa-key', variable: 'GCP_KEY_FILE')]) {
-                    sh '''
-                        gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
-                        gcloud config set project $PROJECT_ID
-                        gcloud auth configure-docker $REGION-docker.pkg.dev -q
-                        gcloud container clusters get-credentials $CLUSTER_NAME --region=$REGION
-                        kubectl config current-context
-                        kubectl get ns $NAMESPACE
-                    '''
-                }
+                sh '''
+                    gcloud config set project $PROJECT_ID
+                    gcloud auth configure-docker $REGION-docker.pkg.dev -q
+                    gcloud container clusters get-credentials $CLUSTER_NAME --region=$REGION
+                    kubectl config current-context
+                    kubectl get ns $NAMESPACE
+                '''
             }
         }
 

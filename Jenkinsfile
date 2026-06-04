@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        PROJECT_ID   = "bitirme-pubsub"
+        PROJECT_ID   = "project-ae272ac8-a64f-4afa-8b7"
         REGION       = "europe-west1"
         REPOSITORY   = "examflow-images"
         IMAGE_API    = "examflow-api"

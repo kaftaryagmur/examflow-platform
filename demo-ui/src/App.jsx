@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Cloud,
+  Cpu,
   Database,
   FileText,
   FileUp,
@@ -61,15 +62,15 @@ function delay(ms) {
 
 function toneClass(tone = "idle") {
   if (["ok", "ready", "authenticated", "accepted", "validated", "uploaded"].includes(tone)) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    return "border-neon-green/40 bg-neon-green/10 text-neon-green";
   }
   if (["running", "processing", "degraded", "pending"].includes(tone)) {
-    return "border-amber-200 bg-amber-50 text-amber-700";
+    return "border-neon-amber/40 bg-neon-amber/10 text-neon-amber";
   }
   if (["failed", "error", "invalid"].includes(tone)) {
-    return "border-rose-200 bg-rose-50 text-rose-700";
+    return "border-danger/50 bg-danger/10 text-danger";
   }
-  return "border-slate-200 bg-slate-50 text-slate-600";
+  return "border-space-line bg-white/5 text-muted";
 }
 
 function parseRecordDate(value) {
@@ -333,22 +334,22 @@ function App() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-page text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-[1440px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-base font-black text-white">
-                EF
+    <main className="min-h-screen overflow-hidden">
+      <header className="border-b border-space-line bg-black/30 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-[1500px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 items-center gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-neon-cyan/40 bg-gradient-to-br from-cyber-purple/80 to-neon-cyan/60 text-xl font-black text-white shadow-neon-cyan">
+                E
               </div>
               <div className="min-w-0">
-                <p className="label">ExamFlow Demo</p>
-                <h1 className="truncate text-xl font-bold sm:text-2xl">Processing Console</h1>
+                <p className="label">ExamFlow</p>
+                <h1 className="truncate text-2xl font-black text-ink sm:text-3xl">Live Analysis Dashboard</h1>
               </div>
-              <Badge tone={ready?.status || "idle"}>{ready?.mode || "api"}</Badge>
+              <Badge tone={health?.status || "idle"}>{health?.mode ? `GKE ${health.mode}` : "GKE Live"}</Badge>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-[minmax(240px,360px)_auto] sm:items-end">
+            <div className="grid gap-3 sm:grid-cols-[minmax(240px,340px)_auto] sm:items-end">
               <label>
                 <span className="label">API Base URL</span>
                 <input className="field mt-1" value={apiBaseUrl} onChange={(event) => setApiBaseUrl(event.target.value)} />
@@ -360,8 +361,8 @@ function App() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <nav className="flex flex-wrap gap-2" aria-label="Demo navigation">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <nav className="flex flex-wrap gap-2" aria-label="Demo dashboard navigation">
               {views.map((view) => {
                 const Icon = view.icon;
                 const active = activeView === view.id;
@@ -379,15 +380,16 @@ function App() {
               })}
             </nav>
             <div className="flex flex-wrap gap-2">
-              <StatusPill icon={KeyRound} label="JWT" value={session?.token ? "active" : "idle"} tone={session?.token ? "ok" : "idle"} />
-              <StatusPill icon={Database} label="DB" value={ready?.databaseStatus || "unknown"} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
-              <StatusPill icon={Server} label="API" value={health?.status || "pending"} tone={health?.status} />
+              <StatusPill icon={ShieldCheck} label="JWT" value={session?.token ? "Authenticated" : "Idle"} tone={session?.token ? "ok" : "idle"} />
+              <StatusPill icon={Database} label="MongoDB" value={ready?.databaseStatus || "Unknown"} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
+              <StatusPill icon={Activity} label="/health" value={health?.status || "Pending"} tone={health?.status} />
+              <StatusPill icon={Server} label="/ready" value={ready?.status || "Pending"} tone={ready?.status} />
             </div>
           </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
         {error ? <Alert tone="failed" message={error} /> : null}
         {notice ? <Alert tone="running" message={notice} /> : null}
 
@@ -463,21 +465,21 @@ function Dashboard({
   timeline,
 }) {
   return (
-    <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)_360px]">
-      <section className="panel p-5">
-        <div className="flex items-start justify-between gap-3">
+    <div className="grid gap-5 xl:grid-cols-[minmax(260px,0.8fr)_minmax(420px,1.3fr)_minmax(300px,0.9fr)]">
+      <section className="panel glass-grid p-5">
+        <div className="mb-5 flex items-start justify-between gap-4">
           <div>
-            <p className="label">Demo Session</p>
-            <h2 className="section-title">Publish Request</h2>
+            <p className="label">Input</p>
+            <h2 className="mt-1 text-xl font-bold text-ink">Lecture Note</h2>
           </div>
-          <Badge tone={session?.token ? "ok" : "idle"}>{session?.token ? "token ready" : "no token"}</Badge>
+          <Badge tone={session?.token ? "ok" : "idle"}>{session?.token ? "Token Ready" : "No Token"}</Badge>
         </div>
 
-        <form className="mt-5 space-y-4" onSubmit={onSubmit}>
-          <label className="block rounded-lg border border-dashed border-slate-300 bg-slate-50 p-5 text-center transition hover:border-cyan-500 hover:bg-cyan-50/50">
-            <FileUp className="mx-auto h-10 w-10 text-cyan-700" />
-            <span className="mt-3 block truncate text-sm font-semibold">{selectedFile?.name || "demo-document.pdf"}</span>
-            <span className="mt-1 block text-xs text-slate-500">documentId: {demoDocumentId}</span>
+        <form onSubmit={onSubmit}>
+          <label className="block rounded-lg border border-dashed border-cyber-purple/50 bg-black/25 p-5 text-center transition hover:border-neon-cyan/70">
+            <FileUp className="mx-auto h-12 w-12 text-cyber-purple" />
+            <span className="mt-4 block truncate text-sm font-semibold text-ink">{selectedFile?.name || "demo-document.pdf"}</span>
+            <span className="mt-1 block text-xs text-muted">documentId: {demoDocumentId}</span>
             <input
               className="sr-only"
               type="file"
@@ -486,15 +488,15 @@ function Dashboard({
             />
           </label>
 
-          <label className="block">
+          <label className="mt-4 block">
             <span className="label">Source</span>
             <input className="field mt-1" value={source} onChange={(event) => setSource(event.target.value)} />
           </label>
 
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-            <button className="btn btn-secondary" type="button" onClick={onStart} disabled={busy === "session"}>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+            <button className="btn btn-primary" type="button" onClick={onStart} disabled={busy === "session"}>
               {busy === "session" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              Baslat
+              Demo Baslat
             </button>
             <button className="btn btn-secondary" type="button" onClick={onReset}>
               <RotateCcw className="h-4 w-4" />
@@ -502,60 +504,41 @@ function Dashboard({
             </button>
           </div>
 
-          <button className="btn btn-primary w-full" type="submit" disabled={busy === "publish"}>
+          <button className="btn btn-primary mt-3 w-full" type="submit" disabled={busy === "publish"}>
             {busy === "publish" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
-            Publish
+            Publish Event
           </button>
         </form>
       </section>
 
-      <section className="panel p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="label">End-to-end state</p>
-            <h2 className="section-title">Processing Timeline</h2>
-          </div>
-          <Badge tone={busy ? "running" : "idle"}>{busy || "ready"}</Badge>
-        </div>
-
-        <div className="mt-6 grid gap-3 md:grid-cols-5">
-          {timeline.map((item) => (
-            <TimelineStep key={item.id} item={item} />
-          ))}
-        </div>
-
-        <div className="mt-6 grid gap-3 lg:grid-cols-3">
-          <PipelineNode icon={Server} title="API Service" value="/publish" tone={timeline[0].status} />
-          <PipelineNode icon={Cloud} title="Pub/Sub" value="document-events" tone={timeline[1].status} />
-          <PipelineNode icon={Activity} title="Worker" value="processing" tone={timeline[2].status} />
-          <PipelineNode icon={ShieldCheck} title="Validation" value="validation result" tone={timeline[3].status} />
-          <PipelineNode icon={ClipboardList} title="Exam Service" value="exam lifecycle" tone={timeline[3].status} />
-          <PipelineNode icon={Database} title="MongoDB" value="documents / exams" tone={documents.length || exams.length ? "ok" : "idle"} />
-        </div>
-
-        <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <dl className="grid gap-3 text-sm sm:grid-cols-3">
-            <Info label="Last document" value={lastDocumentId || "-"} />
-            <Info label="Documents" value={documents.length} />
-            <Info label="Exams" value={exams.length} />
-          </dl>
-        </div>
-      </section>
+      <WorkflowPanel busy={busy} documents={documents} exams={exams} lastDocumentId={lastDocumentId} timeline={timeline} />
 
       <section className="space-y-5">
         <section className="panel p-5">
-          <div className="flex items-start justify-between gap-3">
+          <div className="mb-4 flex items-center justify-between">
             <div>
-              <p className="label">Runtime</p>
-              <h2 className="section-title">Service Health</h2>
+              <p className="label">Generated Content</p>
+              <h2 className="mt-1 text-xl font-bold text-ink">MongoDB Storage</h2>
             </div>
-            <Activity className="h-5 w-5 text-cyan-700" />
+            <Database className="h-5 w-5 text-neon-magenta" />
           </div>
-          <div className="mt-4 space-y-3">
-            <HealthRow label="/health" value={health?.status || "pending"} tone={health?.status} />
-            <HealthRow label="/ready" value={ready?.status || "pending"} tone={ready?.status} />
-            <HealthRow label="database" value={ready?.databaseStatus || "unknown"} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
-            <HealthRow label="mode" value={health?.mode || "unknown"} tone={health?.status} />
+
+          <div className="grid gap-3">
+            <StorageCard title="Documents" subtitle="collection: documents" count={documents.length} tone="cyan" />
+            <StorageCard title="Exams" subtitle="collection: exams" count={exams.length} tone="green" />
+          </div>
+        </section>
+
+        <section className="panel p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-bold text-ink">Infrastructure Metrics</h2>
+            <Cpu className="h-5 w-5 text-neon-green" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Metric label="/health" value={health?.status || "pending"} tone={health?.status} />
+            <Metric label="/ready" value={ready?.status || "pending"} tone={ready?.status} />
+            <Metric label="database" value={ready?.databaseStatus || "unknown"} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
+            <Metric label="mode" value={health?.mode || "unknown"} tone={health?.status} />
           </div>
         </section>
 
@@ -565,15 +548,119 @@ function Dashboard({
   );
 }
 
+function WorkflowPanel({ busy, documents, exams, lastDocumentId, timeline }) {
+  const stateById = Object.fromEntries(timeline.map((item) => [item.id, item.status]));
+  const publishState = stateById.published === "ok" ? "ok" : stateById.received;
+  const validationState = stateById.failed === "failed" ? "failed" : stateById.validated;
+
+  const nodes = [
+    { label: "API Service", icon: Server, state: stateById.received, detail: "protected /publish" },
+    { label: "Pub/Sub", icon: Cloud, state: stateById.published, detail: "document-events" },
+    { label: "Worker", icon: Cpu, state: stateById.processing, detail: "processing" },
+    { label: "Validation", icon: ShieldCheck, state: validationState, detail: "validation result" },
+    { label: "Exam Service", icon: ClipboardList, state: validationState, detail: "exam lifecycle" },
+    { label: "MongoDB", icon: Database, state: documents.length || exams.length ? "ok" : "waiting", detail: "documents / exams" },
+  ];
+
+  return (
+    <section className="panel relative min-h-[560px] overflow-hidden p-5">
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyber-purple via-neon-cyan to-neon-magenta" />
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <p className="label">Event-Driven Workflow</p>
+          <h2 className="mt-1 text-xl font-bold text-ink">Note Processed</h2>
+        </div>
+        <Badge tone={busy ? "running" : publishState === "ok" ? "ok" : "idle"}>{busy ? "Running" : "Ready"}</Badge>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_auto_1fr]">
+        <div className="space-y-4">
+          {nodes.slice(0, 3).map((node) => (
+            <WorkflowNode key={node.label} node={node} />
+          ))}
+        </div>
+
+        <div className="flex items-center justify-center py-4">
+          <div className="flex h-36 w-36 flex-col items-center justify-center rounded-full border border-neon-cyan/50 bg-black/40 text-center shadow-neon-cyan">
+            <KeyRound className="h-7 w-7 text-neon-cyan" />
+            <p className="mt-2 text-sm font-bold text-ink">System Core</p>
+            <p className="text-xs text-muted">{lastDocumentId ? lastDocumentId : "waiting"}</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {nodes.slice(3).map((node) => (
+            <WorkflowNode key={node.label} node={node} />
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-5">
+        {timeline.map((item) => (
+          <TimelineStep key={item.id} item={item} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function WorkflowNode({ node }) {
+  const Icon = node.icon;
+  const active = node.state === "running" || node.state === "ok";
+  return (
+    <article
+      className={`rounded-lg border p-4 transition ${
+        active ? "border-neon-cyan/60 bg-neon-cyan/10 shadow-neon-cyan" : "border-space-line bg-black/25"
+      }`}
+    >
+      <div className="flex items-center gap-3">
+        <div className={`flex h-10 w-10 items-center justify-center rounded-md border ${active ? "border-neon-cyan/60 text-neon-cyan" : "border-space-line text-muted"}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-ink">{node.label}</p>
+          <p className="truncate text-xs text-muted">{node.detail}</p>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function StorageCard({ count, subtitle, title, tone }) {
+  const color = tone === "green" ? "text-neon-green border-neon-green/40 bg-neon-green/10" : "text-neon-cyan border-neon-cyan/40 bg-neon-cyan/10";
+  return (
+    <article className={`rounded-lg border p-4 ${count ? color : "border-space-line bg-black/20 text-muted"}`}>
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-bold">{title}</p>
+          <p className="mt-1 text-xs text-muted">{subtitle}</p>
+        </div>
+        <span className="text-2xl font-black">{count}</span>
+      </div>
+    </article>
+  );
+}
+
+function Metric({ label, value, tone }) {
+  return (
+    <div className="rounded-lg border border-space-line bg-black/25 p-3">
+      <p className="text-[11px] font-semibold uppercase tracking-normal text-muted">{label}</p>
+      <p className={`mt-2 truncate text-sm font-bold ${toneClass(tone).includes("green") ? "text-neon-green" : toneClass(tone).includes("amber") ? "text-neon-amber" : "text-ink"}`}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
 function ArchiveView({ busy, empty, icon: Icon, onRefresh, onStart, records, session, title }) {
   if (!session?.token) {
     return (
-      <section className="panel p-6">
+      <section className="panel glass-grid p-6">
         <div className="flex items-center gap-3">
-          <Icon className="h-6 w-6 text-cyan-700" />
+          <Icon className="h-6 w-6 text-neon-cyan" />
           <div>
             <p className="label">Protected archive</p>
-            <h2 className="section-title">{title}</h2>
+            <h2 className="mt-1 text-xl font-semibold text-ink">{title}</h2>
           </div>
         </div>
         <button className="btn btn-primary mt-5" type="button" onClick={onStart} disabled={busy === "session"}>
@@ -586,13 +673,13 @@ function ArchiveView({ busy, empty, icon: Icon, onRefresh, onStart, records, ses
 
   return (
     <section className="space-y-4">
-      <div className="panel p-5">
+      <div className="panel glass-grid p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <Icon className="h-6 w-6 text-cyan-700" />
+            <Icon className="h-6 w-6 text-neon-cyan" />
             <div>
               <p className="label">Archive</p>
-              <h2 className="section-title">{title}</h2>
+              <h2 className="mt-1 text-xl font-semibold text-ink">{title}</h2>
             </div>
           </div>
           <button className="btn btn-secondary" type="button" onClick={onRefresh} disabled={busy === "archive"}>
@@ -607,7 +694,7 @@ function ArchiveView({ busy, empty, icon: Icon, onRefresh, onStart, records, ses
 }
 
 function Badge({ children, tone = "idle" }) {
-  return <span className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-semibold ${toneClass(tone)}`}>{children}</span>;
+  return <span className={`inline-flex h-7 items-center rounded-full border px-3 text-xs font-semibold ${toneClass(tone)}`}>{children}</span>;
 }
 
 function StatusPill({ icon: Icon, label, value, tone }) {
@@ -623,7 +710,7 @@ function StatusPill({ icon: Icon, label, value, tone }) {
 function Alert({ message, tone }) {
   const Icon = tone === "failed" ? AlertCircle : Activity;
   return (
-    <div className={`mb-4 flex items-start gap-3 rounded-lg border p-4 text-sm font-medium ${toneClass(tone)}`}>
+    <div className={`mb-4 flex items-start gap-3 rounded-lg border p-4 text-sm font-medium backdrop-blur ${toneClass(tone)}`}>
       <Icon className="mt-0.5 h-4 w-4 shrink-0" />
       <span>{message}</span>
     </div>
@@ -636,7 +723,7 @@ function TimelineStep({ item }) {
   const running = item.status === "running";
   const Icon = done ? CheckCircle2 : failed ? XCircle : running ? Loader2 : Activity;
   return (
-    <article className={`rounded-lg border p-4 ${toneClass(item.status)}`}>
+    <article className={`rounded-lg border bg-black/25 p-4 ${toneClass(item.status)}`}>
       <Icon className={`h-5 w-5 ${running ? "animate-spin" : ""}`} />
       <h3 className="mt-3 text-sm font-bold capitalize">{item.label}</h3>
       <p className="mt-1 truncate text-xs opacity-80">{item.detail}</p>
@@ -646,14 +733,14 @@ function TimelineStep({ item }) {
 
 function PipelineNode({ icon: Icon, title, value, tone }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="rounded-lg border border-space-line bg-black/25 p-4">
       <div className="flex items-center gap-3">
         <div className={`flex h-9 w-9 items-center justify-center rounded-md border ${toneClass(tone)}`}>
           <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0">
-          <p className="truncate text-sm font-bold">{title}</p>
-          <p className="truncate text-xs text-slate-500">{value}</p>
+          <p className="truncate text-sm font-bold text-ink">{title}</p>
+          <p className="truncate text-xs text-muted">{value}</p>
         </div>
       </div>
     </div>
@@ -662,8 +749,8 @@ function PipelineNode({ icon: Icon, title, value, tone }) {
 
 function HealthRow({ label, value, tone }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-3 last:border-0 last:pb-0">
-      <span className="text-sm font-medium text-slate-600">{label}</span>
+    <div className="flex items-center justify-between gap-3 border-b border-space-line pb-3 last:border-0 last:pb-0">
+      <span className="text-sm font-medium text-muted">{label}</span>
       <Badge tone={tone}>{value}</Badge>
     </div>
   );
@@ -673,7 +760,7 @@ function Info({ label, value }) {
   return (
     <div>
       <dt className="label">{label}</dt>
-      <dd className="mt-1 truncate font-semibold">{value}</dd>
+      <dd className="mt-1 truncate font-semibold text-ink">{value}</dd>
     </div>
   );
 }
@@ -688,7 +775,7 @@ function LastResponse({ lastResponse }) {
         </div>
         <Badge tone={lastResponse ? "ok" : "idle"}>{lastResponse ? lastResponse.action : "waiting"}</Badge>
       </div>
-      <pre className="mt-4 max-h-64 overflow-auto rounded-lg border border-slate-200 bg-slate-950 p-4 text-xs leading-5 text-slate-100">
+      <pre className="mt-4 max-h-64 overflow-auto rounded-md border border-space-line bg-black/55 p-4 text-xs leading-5 text-slate-100">
         {lastResponse ? JSON.stringify(lastResponse, null, 2) : "No response yet."}
       </pre>
     </section>
@@ -697,7 +784,7 @@ function LastResponse({ lastResponse }) {
 
 function ArchiveList({ records, empty }) {
   if (!records.length) {
-    return <p className="panel p-5 text-sm text-slate-500">{empty}</p>;
+    return <p className="panel p-5 text-sm text-muted">{empty}</p>;
   }
 
   return (
@@ -706,8 +793,8 @@ function ArchiveList({ records, empty }) {
         <article key={record.id || `${record.documentId}-${record.createdAt}`} className="panel p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="truncate text-sm font-bold">{record.title || record.fileName || record.documentId}</h3>
-              <p className="mt-1 truncate text-xs text-slate-500">{record.documentId}</p>
+              <h3 className="truncate text-sm font-bold text-ink">{record.title || record.fileName || record.documentId}</h3>
+              <p className="mt-1 truncate text-xs text-muted">{record.documentId}</p>
             </div>
             <Badge tone={record.status}>{record.status || "unknown"}</Badge>
           </div>
@@ -725,8 +812,8 @@ function ArchiveList({ records, empty }) {
 function ArchiveRow({ label, value }) {
   return (
     <div className="flex justify-between gap-3">
-      <dt className="text-slate-500">{label}</dt>
-      <dd className="truncate text-right font-medium">{value}</dd>
+      <dt className="text-muted">{label}</dt>
+      <dd className="truncate text-right font-medium text-ink">{value}</dd>
     </div>
   );
 }

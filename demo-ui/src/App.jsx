@@ -127,7 +127,7 @@ function responseMessage(method, path, status, body, apiBaseUrl) {
     if (apiBaseUrl.trim() === "/api") {
       return `${method} ${path} ${status} döndü. API proxy yanıt vermedi. api-service için port-forward açık mı? Komut: kubectl port-forward service/api-service 8080:80 -n examflow`;
     }
-    return `${method} ${path} ${status} döndü. API yanıtı boş geldi. API Base URL değerini ve api-service durumunu kontrol et.`;
+    return `${method} ${path} ${status} döndü. API yanıtı boş geldi. api-service durumunu kontrol et.`;
   }
 
   const text = typeof body === "string" ? body.trim() : JSON.stringify(body);
@@ -146,7 +146,7 @@ function responseMessage(method, path, status, body, apiBaseUrl) {
 
 function DemoDashboard() {
   const [activeView, setActiveView] = useState("dashboard");
-  const [apiBaseUrl, setApiBaseUrl] = useState(defaultBaseUrl);
+  const apiBaseUrl = defaultBaseUrl;
   const [session, setSession] = useState(readStoredSession);
   const [health, setHealth] = useState(null);
   const [ready, setReady] = useState(null);
@@ -377,11 +377,7 @@ function DemoDashboard() {
               <Badge tone={health?.status || "idle"}>{health?.mode ? `GKE modu: ${displayStatus(health.mode)}` : "GKE bağlantısı"}</Badge>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-[minmax(240px,340px)_auto] sm:items-end">
-              <label>
-                <span className="label">API Base URL</span>
-                <input className="field mt-1" value={apiBaseUrl} onChange={(event) => setApiBaseUrl(event.target.value)} />
-              </label>
+            <div className="grid gap-3 sm:grid-cols-[auto] sm:items-end">
               <button className="btn btn-secondary" type="button" onClick={refreshStatus} disabled={busy === "status"}>
                 {busy === "status" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                 Durumu yenile
@@ -601,29 +597,29 @@ function WorkflowPanel({ busy, documents, exams, lastDocumentId, timeline }) {
         <Badge tone={busy ? "running" : publishState === "ok" ? "ok" : "idle"}>{busy ? "Çalışıyor" : "Hazır"}</Badge>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_auto_1fr]">
-        <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_7rem_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1fr)_9rem_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-4">
           {nodes.slice(0, 3).map((node) => (
             <WorkflowNode key={node.label} node={node} />
           ))}
         </div>
 
-        <div className="flex items-center justify-center py-4">
-          <div className="flex h-36 w-36 flex-col items-center justify-center rounded-full border border-neon-cyan/50 bg-black/40 text-center shadow-neon-cyan">
-            <KeyRound className="h-7 w-7 text-neon-cyan" />
+        <div className="flex min-w-0 items-center justify-center py-4">
+          <div className="flex h-28 w-28 flex-col items-center justify-center rounded-full border border-neon-cyan/50 bg-black/40 px-2 text-center shadow-neon-cyan 2xl:h-36 2xl:w-36">
+            <KeyRound className="h-6 w-6 text-neon-cyan 2xl:h-7 2xl:w-7" />
             <p className="mt-2 text-sm font-bold text-ink">Akış merkezi</p>
             <p className="text-xs text-muted">{lastDocumentId ? lastDocumentId : "doküman bekleniyor"}</p>
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {nodes.slice(3).map((node) => (
             <WorkflowNode key={node.label} node={node} />
           ))}
         </div>
       </div>
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-5">
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
         {timeline.map((item) => (
           <TimelineStep key={item.id} item={item} />
         ))}
@@ -865,7 +861,7 @@ const appNav = [
 ];
 
 function ProductApp() {
-  const [apiBaseUrl, setApiBaseUrl] = useState(defaultBaseUrl);
+  const apiBaseUrl = defaultBaseUrl;
   const [session, setSession] = useState(readStoredSession);
   const [health, setHealth] = useState(null);
   const [ready, setReady] = useState(null);
@@ -977,7 +973,7 @@ function ProductApp() {
   if (!session?.token) {
     return (
       <main className="app-auth-shell">
-        <AuthPanel apiBaseUrl={apiBaseUrl} busy={busy} error={error} onApiBaseUrl={setApiBaseUrl} onSubmit={handleAuth} />
+        <AuthPanel busy={busy} error={error} onSubmit={handleAuth} />
         <AuthAside health={health} ready={ready} onRefresh={refreshStatus} busy={busy} />
       </main>
     );
@@ -1016,11 +1012,7 @@ function ProductApp() {
             <p className="label">Authenticated frontend</p>
             <h2 className="text-2xl font-black text-ink">ExamFlow kullanıcı paneli</h2>
           </div>
-          <div className="grid gap-3 sm:grid-cols-[minmax(220px,320px)_auto] sm:items-end">
-            <label>
-              <span className="label">API Base URL</span>
-              <input className="field mt-1" value={apiBaseUrl} onChange={(event) => setApiBaseUrl(event.target.value)} />
-            </label>
+          <div className="grid gap-3 sm:grid-cols-[auto] sm:items-end">
             <button className="btn btn-secondary" type="button" onClick={() => loadArchive()} disabled={busy === "archive"}>
               {busy === "archive" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Arşivi yenile
@@ -1046,7 +1038,7 @@ function ProductApp() {
   );
 }
 
-function AuthPanel({ apiBaseUrl, busy, error, onApiBaseUrl, onSubmit }) {
+function AuthPanel({ busy, error, onSubmit }) {
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("demo@examflow.local");
   const [displayName, setDisplayName] = useState("Demo Kullanıcısı");
@@ -1060,13 +1052,13 @@ function AuthPanel({ apiBaseUrl, busy, error, onApiBaseUrl, onSubmit }) {
   return (
     <section className="auth-card">
       <div className="brand-mark">E</div>
-      <p className="label mt-6">ExamFlow App</p>
-      <h1 className="mt-2 text-3xl font-black text-ink">Akıllı sınav arşivine giriş yap.</h1>
-      <p className="mt-3 text-sm leading-6 text-muted">
+      <p className="label mt-4">ExamFlow App</p>
+      <h1 className="mt-2 text-2xl font-black text-ink">Akıllı sınav arşivine giriş yap.</h1>
+      <p className="mt-2 text-sm leading-6 text-muted">
         Bu ekran, kullanıcı girişi yapılan ürün deneyiminin başlangıcıdır. Giriş yaptıktan sonra doküman ve sınav kayıtları aynı panelden izlenir.
       </p>
 
-      <div className="mt-6 grid grid-cols-2 gap-2 rounded-lg border border-space-line bg-black/20 p-1">
+      <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg border border-space-line bg-black/20 p-1">
         <button className={`segmented-btn ${mode === "login" ? "active" : ""}`} type="button" onClick={() => setMode("login")}>
           Giriş yap
         </button>
@@ -1075,7 +1067,7 @@ function AuthPanel({ apiBaseUrl, busy, error, onApiBaseUrl, onSubmit }) {
         </button>
       </div>
 
-      <form className="mt-6 grid gap-4" onSubmit={submit}>
+      <form className="mt-4 grid gap-3" onSubmit={submit}>
         <label>
           <span className="label">Email</span>
           <input className="field mt-1" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
@@ -1090,24 +1082,20 @@ function AuthPanel({ apiBaseUrl, busy, error, onApiBaseUrl, onSubmit }) {
           <span className="label">Şifre</span>
           <input className="field mt-1" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
         </label>
-        <label>
-          <span className="label">API Base URL</span>
-          <input className="field mt-1" value={apiBaseUrl} onChange={(event) => onApiBaseUrl(event.target.value)} />
-        </label>
         <button className="btn btn-primary" type="submit" disabled={busy === "auth"}>
           {busy === "auth" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
           {mode === "login" ? "Kullanıcı paneline gir" : "Kayıt ol ve panele gir"}
         </button>
       </form>
 
-      {error ? <p className="mt-4 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{error}</p> : null}
+      {error ? <p className="mt-3 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{error}</p> : null}
     </section>
   );
 }
 
 function AuthAside({ busy, health, onRefresh, ready }) {
   return (
-    <section className="auth-aside panel glass-grid p-6">
+    <section className="auth-aside panel glass-grid p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="label">Canlı sistem</p>
@@ -1118,12 +1106,12 @@ function AuthAside({ busy, health, onRefresh, ready }) {
           Durumu yenile
         </button>
       </div>
-      <div className="mt-6 grid gap-3">
+      <div className="mt-5 grid gap-3">
         <HealthRow label="/health" value={displayStatus(health?.status || "pending")} tone={health?.status} />
         <HealthRow label="/ready" value={displayStatus(ready?.status || "pending")} tone={ready?.status} />
         <HealthRow label="database" value={displayStatus(ready?.databaseStatus || "unknown")} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
       </div>
-      <div className="mt-8 rounded-lg border border-neon-cyan/30 bg-neon-cyan/10 p-4">
+      <div className="mt-5 rounded-lg border border-neon-cyan/30 bg-neon-cyan/10 p-4">
         <p className="text-sm font-bold text-ink">Sonraki ekranlar</p>
         <p className="mt-2 text-sm leading-6 text-muted">
           Document detail, exam detail, favorites ve tag ekranları bu kullanıcı panelinin üzerine adım adım eklenecek.

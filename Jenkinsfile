@@ -263,6 +263,7 @@ pipeline {
 
                     kubectl apply -k .
 
+                    kubectl rollout status deployment/mongodb -n $NAMESPACE             --timeout=180s
                     kubectl rollout status deployment/api-service -n $NAMESPACE         --timeout=180s
                     kubectl rollout status deployment/exam-service -n $NAMESPACE        --timeout=180s
                     kubectl rollout status deployment/validation-service -n $NAMESPACE  --timeout=180s
@@ -297,6 +298,13 @@ pipeline {
                     sleep 10
 
                     curl -f http://127.0.0.1:18080/health
+
+                    READY_BODY="$(curl -fsS http://127.0.0.1:18080/ready)"
+                    echo "$READY_BODY"
+                    if ! echo "$READY_BODY" | grep -q '"databaseStatus":"ready"'; then
+                        echo "Expected /ready databaseStatus to be ready"
+                        exit 1
+                    fi
 
                     DOCUMENTS_STATUS="$(curl -s -o /tmp/documents-smoke.txt -w "%{http_code}" http://127.0.0.1:18080/documents)"
                     if [ "$DOCUMENTS_STATUS" != "401" ]; then

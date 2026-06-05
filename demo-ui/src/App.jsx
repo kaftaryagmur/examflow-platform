@@ -27,17 +27,17 @@ const demoPassword = "ExamFlowDemo2026";
 const sessionKey = "examflow-demo-session";
 
 const views = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "documents", label: "Documents", icon: FileText },
-  { id: "exams", label: "Exams", icon: ClipboardList },
+  { id: "dashboard", label: "Demo akışı", icon: LayoutDashboard },
+  { id: "documents", label: "Doküman kayıtları", icon: FileText },
+  { id: "exams", label: "Sınav kayıtları", icon: ClipboardList },
 ];
 
 const emptyTimeline = [
-  { id: "received", label: "received", detail: "API Service", status: "waiting" },
-  { id: "published", label: "published", detail: "Pub/Sub Event", status: "waiting" },
-  { id: "processing", label: "processing", detail: "Worker Service", status: "waiting" },
-  { id: "validated", label: "validated", detail: "Validation Service", status: "waiting" },
-  { id: "failed", label: "failed", detail: "Error State", status: "waiting" },
+  { id: "received", label: "Alındı", detail: "API Service isteği aldı", status: "waiting" },
+  { id: "published", label: "Yayınlandı", detail: "Pub/Sub event üretildi", status: "waiting" },
+  { id: "processing", label: "İşleniyor", detail: "Worker Service çalışıyor", status: "waiting" },
+  { id: "validated", label: "Doğrulandı", detail: "Validation Service sonucu", status: "waiting" },
+  { id: "failed", label: "Hata", detail: "Akışta hata oluştu", status: "waiting" },
 ];
 
 function readStoredSession() {
@@ -85,6 +85,32 @@ function parseRecordDate(value) {
   });
 }
 
+function displayStatus(value) {
+  const normalized = String(value || "").toLowerCase();
+  const labels = {
+    accepted: "Kabul edildi",
+    authenticated: "Oturum açık",
+    degraded: "Kısmi hazır",
+    error: "Hata",
+    failed: "Başarısız",
+    idle: "Bekliyor",
+    invalid: "Geçersiz",
+    not_configured: "Yapılandırılmadı",
+    ok: "Çalışıyor",
+    pending: "Bekliyor",
+    processing: "İşleniyor",
+    pubsub: "Pub/Sub",
+    ready: "Hazır",
+    running: "Çalışıyor",
+    uploaded: "Yüklendi",
+    unreachable: "Ulaşılamıyor",
+    unknown: "Bilinmiyor",
+    validated: "Doğrulandı",
+    waiting: "Bekliyor",
+  };
+  return labels[normalized] || value || "Bilinmiyor";
+}
+
 async function parseResponse(response) {
   const text = await response.text();
   let body = text;
@@ -99,23 +125,23 @@ async function parseResponse(response) {
 function responseMessage(method, path, status, body, apiBaseUrl) {
   if (body === null || body === "") {
     if (apiBaseUrl.trim() === "/api") {
-      return `${method} ${path} returned ${status}. API proxy yanit vermedi. api-service icin port-forward acik mi? Komut: kubectl port-forward service/api-service 8080:80 -n examflow`;
+      return `${method} ${path} ${status} döndü. API proxy yanıt vermedi. api-service için port-forward açık mı? Komut: kubectl port-forward service/api-service 8080:80 -n examflow`;
     }
-    return `${method} ${path} returned ${status}. API yaniti bos geldi. API Base URL degerini ve api-service durumunu kontrol et.`;
+    return `${method} ${path} ${status} döndü. API yanıtı boş geldi. API Base URL değerini ve api-service durumunu kontrol et.`;
   }
 
   const text = typeof body === "string" ? body.trim() : JSON.stringify(body);
   if (text.includes("auth store unavailable")) {
-    return `${method} ${path} returned ${status}. Auth store hazir degil; api-service MongoDB baglantisi olmadan register/login yapamaz. /ready icindeki databaseStatus degerini kontrol et.`;
+    return `${method} ${path} ${status} döndü. Auth store hazır değil; api-service MongoDB bağlantısı olmadan register/login yapamaz. /ready içindeki databaseStatus değerini kontrol et.`;
   }
   if (text.includes("auth token signing unavailable")) {
-    return `${method} ${path} returned ${status}. JWT_SECRET api-service icin hazir degil. Kubernetes Secret veya local env ayarini kontrol et.`;
+    return `${method} ${path} ${status} döndü. JWT_SECRET api-service için hazır değil. Kubernetes Secret veya local env ayarını kontrol et.`;
   }
   if (text.includes("document store unavailable")) {
-    return `${method} ${path} returned ${status}. Document store hazir degil; MongoDB baglantisi gerekli.`;
+    return `${method} ${path} ${status} döndü. Document store hazır değil; MongoDB bağlantısı gerekli.`;
   }
 
-  return `${method} ${path} returned ${status}: ${text || "request failed"}`;
+  return `${method} ${path} ${status} döndü: ${text || "istek başarısız oldu"}`;
 }
 
 function DemoDashboard() {
@@ -219,7 +245,7 @@ function DemoDashboard() {
 
   async function loadArchive(token = session?.token) {
     if (!token) {
-      throw new Error("Archive kayitlari icin once demo session baslatilmali.");
+      throw new Error("Arşiv kayıtlarını görmek için önce demo oturumu başlatılmalı.");
     }
 
     const headers = { Authorization: `Bearer ${token}` };
@@ -236,7 +262,7 @@ function DemoDashboard() {
 
   async function refreshArchive(token = session?.token) {
     if (!token) {
-      setError("Archive kayitlari icin once demo session baslatilmali.");
+      setError("Arşiv kayıtlarını görmek için önce demo oturumu başlatılmalı.");
       return null;
     }
 
@@ -270,7 +296,7 @@ function DemoDashboard() {
       return exam;
     }
 
-    setNotice("Exam kaydi henuz gelmedi. Event akisi arka planda devam ediyor olabilir.");
+    setNotice("Sınav kaydı henüz oluşmadı. Event akışı arka planda devam ediyor olabilir.");
     return null;
   }
 
@@ -346,9 +372,9 @@ function DemoDashboard() {
               </div>
               <div className="min-w-0">
                 <p className="label">ExamFlow</p>
-                <h1 className="truncate text-2xl font-black text-ink sm:text-3xl">Live Analysis Dashboard</h1>
+                <h1 className="truncate text-2xl font-black text-ink sm:text-3xl">Canlı Demo Akışı</h1>
               </div>
-              <Badge tone={health?.status || "idle"}>{health?.mode ? `GKE ${health.mode}` : "GKE Live"}</Badge>
+              <Badge tone={health?.status || "idle"}>{health?.mode ? `GKE modu: ${displayStatus(health.mode)}` : "GKE bağlantısı"}</Badge>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-[minmax(240px,340px)_auto] sm:items-end">
@@ -358,13 +384,13 @@ function DemoDashboard() {
               </label>
               <button className="btn btn-secondary" type="button" onClick={refreshStatus} disabled={busy === "status"}>
                 {busy === "status" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                Refresh
+                Durumu yenile
               </button>
             </div>
           </div>
 
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <nav className="flex flex-wrap gap-2" aria-label="Demo dashboard navigation">
+            <nav className="flex flex-wrap gap-2" aria-label="Demo ekranı menüsü">
               {views.map((view) => {
                 const Icon = view.icon;
                 const active = activeView === view.id;
@@ -382,10 +408,10 @@ function DemoDashboard() {
               })}
             </nav>
             <div className="flex flex-wrap gap-2">
-              <StatusPill icon={ShieldCheck} label="JWT" value={session?.token ? "Authenticated" : "Idle"} tone={session?.token ? "ok" : "idle"} />
-              <StatusPill icon={Database} label="MongoDB" value={ready?.databaseStatus || "Unknown"} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
-              <StatusPill icon={Activity} label="/health" value={health?.status || "Pending"} tone={health?.status} />
-              <StatusPill icon={Server} label="/ready" value={ready?.status || "Pending"} tone={ready?.status} />
+              <StatusPill icon={ShieldCheck} label="JWT" value={session?.token ? "Oturum açık" : "Oturum yok"} tone={session?.token ? "ok" : "idle"} />
+              <StatusPill icon={Database} label="MongoDB" value={displayStatus(ready?.databaseStatus)} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
+              <StatusPill icon={Activity} label="/health" value={displayStatus(health?.status || "pending")} tone={health?.status} />
+              <StatusPill icon={Server} label="/ready" value={displayStatus(ready?.status || "pending")} tone={ready?.status} />
             </div>
           </div>
         </div>
@@ -420,26 +446,26 @@ function DemoDashboard() {
         {activeView === "documents" ? (
           <ArchiveView
             busy={busy}
-            empty="Document kaydi bulunamadi."
+            empty="Bu kullanıcı için henüz doküman kaydı bulunamadı."
             icon={FileText}
             onRefresh={() => refreshArchive()}
             onStart={startDemoSession}
             records={documents}
             session={session}
-            title="Documents"
+            title="Doküman kayıtları"
           />
         ) : null}
 
         {activeView === "exams" ? (
           <ArchiveView
             busy={busy}
-            empty="Exam kaydi bulunamadi."
+            empty="Bu kullanıcı için henüz sınav kaydı bulunamadı."
             icon={ClipboardList}
             onRefresh={() => refreshArchive()}
             onStart={startDemoSession}
             records={exams}
             session={session}
-            title="Exams"
+            title="Sınav kayıtları"
           />
         ) : null}
       </div>
@@ -471,10 +497,10 @@ function Dashboard({
       <section className="panel glass-grid p-5">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
-            <p className="label">Input</p>
-            <h2 className="mt-1 text-xl font-bold text-ink">Lecture Note</h2>
+            <p className="label">Girdi</p>
+            <h2 className="mt-1 text-xl font-bold text-ink">Ders notu dokümanı</h2>
           </div>
-          <Badge tone={session?.token ? "ok" : "idle"}>{session?.token ? "Token Ready" : "No Token"}</Badge>
+          <Badge tone={session?.token ? "ok" : "idle"}>{session?.token ? "JWT hazır" : "Oturum yok"}</Badge>
         </div>
 
         <form onSubmit={onSubmit}>
@@ -491,24 +517,24 @@ function Dashboard({
           </label>
 
           <label className="mt-4 block">
-            <span className="label">Source</span>
+            <span className="label">Kaynak</span>
             <input className="field mt-1" value={source} onChange={(event) => setSource(event.target.value)} />
           </label>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
             <button className="btn btn-primary" type="button" onClick={onStart} disabled={busy === "session"}>
               {busy === "session" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              Demo Baslat
+              Oturum başlat
             </button>
             <button className="btn btn-secondary" type="button" onClick={onReset}>
               <RotateCcw className="h-4 w-4" />
-              Sifirla
+              Sıfırla
             </button>
           </div>
 
           <button className="btn btn-primary mt-3 w-full" type="submit" disabled={busy === "publish"}>
             {busy === "publish" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
-            Publish Event
+            Dokümanı event olarak gönder
           </button>
         </form>
       </section>
@@ -519,28 +545,28 @@ function Dashboard({
         <section className="panel p-5">
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <p className="label">Generated Content</p>
-              <h2 className="mt-1 text-xl font-bold text-ink">MongoDB Storage</h2>
+              <p className="label">Oluşan kayıtlar</p>
+              <h2 className="mt-1 text-xl font-bold text-ink">MongoDB depolama</h2>
             </div>
             <Database className="h-5 w-5 text-neon-magenta" />
           </div>
 
           <div className="grid gap-3">
-            <StorageCard title="Documents" subtitle="collection: documents" count={documents.length} tone="cyan" />
-            <StorageCard title="Exams" subtitle="collection: exams" count={exams.length} tone="green" />
+            <StorageCard title="Dokümanlar" subtitle="collection: documents" count={documents.length} tone="cyan" />
+            <StorageCard title="Sınavlar" subtitle="collection: exams" count={exams.length} tone="green" />
           </div>
         </section>
 
         <section className="panel p-5">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-bold text-ink">Infrastructure Metrics</h2>
+            <h2 className="text-lg font-bold text-ink">Sistem durumu</h2>
             <Cpu className="h-5 w-5 text-neon-green" />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Metric label="/health" value={health?.status || "pending"} tone={health?.status} />
-            <Metric label="/ready" value={ready?.status || "pending"} tone={ready?.status} />
-            <Metric label="database" value={ready?.databaseStatus || "unknown"} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
-            <Metric label="mode" value={health?.mode || "unknown"} tone={health?.status} />
+            <Metric label="/health" value={displayStatus(health?.status || "pending")} tone={health?.status} />
+            <Metric label="/ready" value={displayStatus(ready?.status || "pending")} tone={ready?.status} />
+            <Metric label="database" value={displayStatus(ready?.databaseStatus || "unknown")} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
+            <Metric label="mode" value={displayStatus(health?.mode || "unknown")} tone={health?.status} />
           </div>
         </section>
 
@@ -556,12 +582,12 @@ function WorkflowPanel({ busy, documents, exams, lastDocumentId, timeline }) {
   const validationState = stateById.failed === "failed" ? "failed" : stateById.validated;
 
   const nodes = [
-    { label: "API Service", icon: Server, state: stateById.received, detail: "protected /publish" },
-    { label: "Pub/Sub", icon: Cloud, state: stateById.published, detail: "document-events" },
-    { label: "Worker", icon: Cpu, state: stateById.processing, detail: "processing" },
-    { label: "Validation", icon: ShieldCheck, state: validationState, detail: "validation result" },
-    { label: "Exam Service", icon: ClipboardList, state: validationState, detail: "exam lifecycle" },
-    { label: "MongoDB", icon: Database, state: documents.length || exams.length ? "ok" : "waiting", detail: "documents / exams" },
+    { label: "API Service", icon: Server, state: stateById.received, detail: "JWT ile korunan /publish" },
+    { label: "Pub/Sub", icon: Cloud, state: stateById.published, detail: "document-events kuyruğu" },
+    { label: "Worker Service", icon: Cpu, state: stateById.processing, detail: "dokümanı işler" },
+    { label: "Validation Service", icon: ShieldCheck, state: validationState, detail: "çıktıyı doğrular" },
+    { label: "Exam Service", icon: ClipboardList, state: validationState, detail: "sınav kaydı üretir" },
+    { label: "MongoDB", icon: Database, state: documents.length || exams.length ? "ok" : "waiting", detail: "doküman ve sınav arşivi" },
   ];
 
   return (
@@ -569,10 +595,10 @@ function WorkflowPanel({ busy, documents, exams, lastDocumentId, timeline }) {
       <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyber-purple via-neon-cyan to-neon-magenta" />
       <div className="mb-5 flex items-center justify-between">
         <div>
-          <p className="label">Event-Driven Workflow</p>
-          <h2 className="mt-1 text-xl font-bold text-ink">Note Processed</h2>
+          <p className="label">Event-driven workflow</p>
+          <h2 className="mt-1 text-xl font-bold text-ink">Doküman işleme akışı</h2>
         </div>
-        <Badge tone={busy ? "running" : publishState === "ok" ? "ok" : "idle"}>{busy ? "Running" : "Ready"}</Badge>
+        <Badge tone={busy ? "running" : publishState === "ok" ? "ok" : "idle"}>{busy ? "Çalışıyor" : "Hazır"}</Badge>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_auto_1fr]">
@@ -585,8 +611,8 @@ function WorkflowPanel({ busy, documents, exams, lastDocumentId, timeline }) {
         <div className="flex items-center justify-center py-4">
           <div className="flex h-36 w-36 flex-col items-center justify-center rounded-full border border-neon-cyan/50 bg-black/40 text-center shadow-neon-cyan">
             <KeyRound className="h-7 w-7 text-neon-cyan" />
-            <p className="mt-2 text-sm font-bold text-ink">System Core</p>
-            <p className="text-xs text-muted">{lastDocumentId ? lastDocumentId : "waiting"}</p>
+            <p className="mt-2 text-sm font-bold text-ink">Akış merkezi</p>
+            <p className="text-xs text-muted">{lastDocumentId ? lastDocumentId : "doküman bekleniyor"}</p>
           </div>
         </div>
 
@@ -661,13 +687,13 @@ function ArchiveView({ busy, empty, icon: Icon, onRefresh, onStart, records, ses
         <div className="flex items-center gap-3">
           <Icon className="h-6 w-6 text-neon-cyan" />
           <div>
-            <p className="label">Protected archive</p>
+            <p className="label">JWT ile korunan arşiv</p>
             <h2 className="mt-1 text-xl font-semibold text-ink">{title}</h2>
           </div>
         </div>
         <button className="btn btn-primary mt-5" type="button" onClick={onStart} disabled={busy === "session"}>
           {busy === "session" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          Baslat
+          Demo oturumu başlat
         </button>
       </section>
     );
@@ -680,13 +706,13 @@ function ArchiveView({ busy, empty, icon: Icon, onRefresh, onStart, records, ses
           <div className="flex items-center gap-3">
             <Icon className="h-6 w-6 text-neon-cyan" />
             <div>
-              <p className="label">Archive</p>
+              <p className="label">Arşiv</p>
               <h2 className="mt-1 text-xl font-semibold text-ink">{title}</h2>
             </div>
           </div>
           <button className="btn btn-secondary" type="button" onClick={onRefresh} disabled={busy === "archive"}>
             {busy === "archive" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Refresh
+            Kayıtları yenile
           </button>
         </div>
       </div>
@@ -773,12 +799,12 @@ function LastResponse({ lastResponse }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="label">API</p>
-          <h2 className="section-title">Last Response</h2>
+          <h2 className="section-title">Son API cevabı</h2>
         </div>
-        <Badge tone={lastResponse ? "ok" : "idle"}>{lastResponse ? lastResponse.action : "waiting"}</Badge>
+        <Badge tone={lastResponse ? "ok" : "idle"}>{lastResponse ? lastResponse.action : "bekleniyor"}</Badge>
       </div>
       <pre className="mt-4 max-h-64 overflow-auto rounded-md border border-space-line bg-black/55 p-4 text-xs leading-5 text-slate-100">
-        {lastResponse ? JSON.stringify(lastResponse, null, 2) : "No response yet."}
+        {lastResponse ? JSON.stringify(lastResponse, null, 2) : "Henüz API cevabı yok."}
       </pre>
     </section>
   );
@@ -798,12 +824,12 @@ function ArchiveList({ records, empty }) {
               <h3 className="truncate text-sm font-bold text-ink">{record.title || record.fileName || record.documentId}</h3>
               <p className="mt-1 truncate text-xs text-muted">{record.documentId}</p>
             </div>
-            <Badge tone={record.status}>{record.status || "unknown"}</Badge>
+            <Badge tone={record.status}>{displayStatus(record.status || "unknown")}</Badge>
           </div>
           <dl className="mt-4 space-y-2 text-xs">
-            <ArchiveRow label="Result" value={record.validationResult || record.source || "-"} />
-            <ArchiveRow label="Created" value={parseRecordDate(record.createdAt)} />
-            <ArchiveRow label="Updated" value={parseRecordDate(record.updatedAt)} />
+            <ArchiveRow label="Sonuç" value={displayStatus(record.validationResult || record.source || "-")} />
+            <ArchiveRow label="Oluşturulma" value={parseRecordDate(record.createdAt)} />
+            <ArchiveRow label="Güncelleme" value={parseRecordDate(record.updatedAt)} />
           </dl>
         </article>
       ))}
@@ -832,10 +858,10 @@ function App() {
 }
 
 const appNav = [
-  { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/app/documents", label: "Documents", icon: FileText },
-  { to: "/app/exams", label: "Exams", icon: ClipboardList },
-  { to: "/app/activity", label: "Activity", icon: Activity },
+  { to: "/app/dashboard", label: "Genel bakış", icon: LayoutDashboard },
+  { to: "/app/documents", label: "Doküman arşivi", icon: FileText },
+  { to: "/app/exams", label: "Sınav arşivi", icon: ClipboardList },
+  { to: "/app/activity", label: "İşlem geçmişi", icon: Activity },
 ];
 
 function ProductApp() {
@@ -964,22 +990,22 @@ function ProductApp() {
           <div className="brand-mark">E</div>
           <div className="min-w-0">
             <p className="label">ExamFlow</p>
-            <h1 className="truncate text-lg font-black text-ink">Workspace</h1>
+            <h1 className="truncate text-lg font-black text-ink">Kullanıcı alanı</h1>
           </div>
         </div>
 
-        <nav className="mt-8 grid gap-2" aria-label="Application navigation">
+        <nav className="mt-8 grid gap-2" aria-label="Uygulama menüsü">
           {appNav.map((item) => (
             <AppNavItem key={item.to} item={item} />
           ))}
         </nav>
 
         <div className="mt-auto rounded-lg border border-space-line bg-black/25 p-4">
-          <p className="label">Signed in</p>
+          <p className="label">Giriş yapan kullanıcı</p>
           <p className="mt-1 truncate text-sm font-bold text-ink">{session.user?.displayName || session.email}</p>
           <button className="btn btn-secondary mt-4 w-full" type="button" onClick={logout}>
             <User className="h-4 w-4" />
-            Cikis
+            Çıkış yap
           </button>
         </div>
       </aside>
@@ -988,7 +1014,7 @@ function ProductApp() {
         <header className="app-topbar">
           <div>
             <p className="label">Authenticated frontend</p>
-            <h2 className="text-2xl font-black text-ink">Product Shell</h2>
+            <h2 className="text-2xl font-black text-ink">ExamFlow kullanıcı paneli</h2>
           </div>
           <div className="grid gap-3 sm:grid-cols-[minmax(220px,320px)_auto] sm:items-end">
             <label>
@@ -997,7 +1023,7 @@ function ProductApp() {
             </label>
             <button className="btn btn-secondary" type="button" onClick={() => loadArchive()} disabled={busy === "archive"}>
               {busy === "archive" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Sync
+              Arşivi yenile
             </button>
           </div>
         </header>
@@ -1010,8 +1036,8 @@ function ProductApp() {
             path="dashboard"
             element={<AppOverview documents={documents} exams={exams} health={health} ready={ready} />}
           />
-          <Route path="documents" element={<WorkspaceRecords title="Document Archive" records={documents} empty="Henuz document kaydi yok." />} />
-          <Route path="exams" element={<WorkspaceRecords title="Exam Archive" records={exams} empty="Henuz exam kaydi yok." />} />
+          <Route path="documents" element={<WorkspaceRecords title="Doküman arşivi" records={documents} empty="Henüz doküman kaydı yok." />} />
+          <Route path="exams" element={<WorkspaceRecords title="Sınav arşivi" records={exams} empty="Henüz sınav kaydı yok." />} />
           <Route path="activity" element={<ActivityWorkspace documents={documents} exams={exams} />} />
           <Route path="*" element={<Navigate to="dashboard" replace />} />
         </Routes>
@@ -1023,7 +1049,7 @@ function ProductApp() {
 function AuthPanel({ apiBaseUrl, busy, error, onApiBaseUrl, onSubmit }) {
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("demo@examflow.local");
-  const [displayName, setDisplayName] = useState("Demo User");
+  const [displayName, setDisplayName] = useState("Demo Kullanıcısı");
   const [password, setPassword] = useState(demoPassword);
 
   function submit(event) {
@@ -1035,17 +1061,17 @@ function AuthPanel({ apiBaseUrl, busy, error, onApiBaseUrl, onSubmit }) {
     <section className="auth-card">
       <div className="brand-mark">E</div>
       <p className="label mt-6">ExamFlow App</p>
-      <h1 className="mt-2 text-3xl font-black text-ink">Akilli sinav arsivi icin giris yap.</h1>
+      <h1 className="mt-2 text-3xl font-black text-ink">Akıllı sınav arşivine giriş yap.</h1>
       <p className="mt-3 text-sm leading-6 text-muted">
-        Demo arayuzu sunum akisini gosterir; bu alan authenticated urun deneyiminin baslangic kabugudur.
+        Bu ekran, kullanıcı girişi yapılan ürün deneyiminin başlangıcıdır. Giriş yaptıktan sonra doküman ve sınav kayıtları aynı panelden izlenir.
       </p>
 
       <div className="mt-6 grid grid-cols-2 gap-2 rounded-lg border border-space-line bg-black/20 p-1">
         <button className={`segmented-btn ${mode === "login" ? "active" : ""}`} type="button" onClick={() => setMode("login")}>
-          Giris
+          Giriş yap
         </button>
         <button className={`segmented-btn ${mode === "register" ? "active" : ""}`} type="button" onClick={() => setMode("register")}>
-          Kayit
+          Kayıt ol
         </button>
       </div>
 
@@ -1056,12 +1082,12 @@ function AuthPanel({ apiBaseUrl, busy, error, onApiBaseUrl, onSubmit }) {
         </label>
         {mode === "register" ? (
           <label>
-            <span className="label">Display name</span>
+          <span className="label">Görünen ad</span>
             <input className="field mt-1" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
           </label>
         ) : null}
         <label>
-          <span className="label">Password</span>
+          <span className="label">Şifre</span>
           <input className="field mt-1" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
         </label>
         <label>
@@ -1070,7 +1096,7 @@ function AuthPanel({ apiBaseUrl, busy, error, onApiBaseUrl, onSubmit }) {
         </label>
         <button className="btn btn-primary" type="submit" disabled={busy === "auth"}>
           {busy === "auth" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-          {mode === "login" ? "Workspace'e gir" : "Kayit ol ve gir"}
+          {mode === "login" ? "Kullanıcı paneline gir" : "Kayıt ol ve panele gir"}
         </button>
       </form>
 
@@ -1084,23 +1110,23 @@ function AuthAside({ busy, health, onRefresh, ready }) {
     <section className="auth-aside panel glass-grid p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="label">Live system</p>
-          <h2 className="section-title">Backend baglantisi</h2>
+          <p className="label">Canlı sistem</p>
+          <h2 className="section-title">Backend bağlantısı</h2>
         </div>
         <button className="btn btn-secondary" type="button" onClick={onRefresh} disabled={busy === "status"}>
           {busy === "status" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          Refresh
+          Durumu yenile
         </button>
       </div>
       <div className="mt-6 grid gap-3">
-        <HealthRow label="/health" value={health?.status || "pending"} tone={health?.status} />
-        <HealthRow label="/ready" value={ready?.status || "pending"} tone={ready?.status} />
-        <HealthRow label="database" value={ready?.databaseStatus || "unknown"} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
+        <HealthRow label="/health" value={displayStatus(health?.status || "pending")} tone={health?.status} />
+        <HealthRow label="/ready" value={displayStatus(ready?.status || "pending")} tone={ready?.status} />
+        <HealthRow label="database" value={displayStatus(ready?.databaseStatus || "unknown")} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
       </div>
       <div className="mt-8 rounded-lg border border-neon-cyan/30 bg-neon-cyan/10 p-4">
         <p className="text-sm font-bold text-ink">Sonraki ekranlar</p>
         <p className="mt-2 text-sm leading-6 text-muted">
-          Document detail, exam detail, favorites ve tag isleri bu shell uzerine route bazli eklenecek.
+          Document detail, exam detail, favorites ve tag ekranları bu kullanıcı panelinin üzerine adım adım eklenecek.
         </p>
       </div>
     </section>
@@ -1122,25 +1148,25 @@ function AppOverview({ documents, exams, health, ready }) {
     <div className="grid gap-5">
       <section className="app-hero">
         <div>
-          <p className="label">Today</p>
-          <h3 className="mt-2 text-3xl font-black text-ink">Arsiv, sinavlar ve islem gecmisi tek calisma alaninda.</h3>
+          <p className="label">Genel bakış</p>
+          <h3 className="mt-2 text-3xl font-black text-ink">Arşiv, sınavlar ve işlem geçmişi tek çalışma alanında.</h3>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
-            Bu shell, mevcut API ile login olan kullanicinin kayitlarini okuyarak urun arayuzunun temelini kurar.
+            Bu panel, giriş yapan kullanıcının dokümanlarını ve bu dokümanlardan üretilen sınavları mevcut API üzerinden okur.
           </p>
         </div>
-        <Badge tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status}>MongoDB {ready?.databaseStatus || "unknown"}</Badge>
+        <Badge tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status}>MongoDB {displayStatus(ready?.databaseStatus || "unknown")}</Badge>
       </section>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <InsightCard icon={FileText} title="Documents" value={documents.length} tone="ok" />
-        <InsightCard icon={ClipboardList} title="Exams" value={exams.length} tone="ready" />
-        <InsightCard icon={Activity} title="API" value={health?.status || "pending"} tone={health?.status} />
-        <InsightCard icon={Database} title="Database" value={ready?.databaseStatus || "unknown"} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
+        <InsightCard icon={FileText} title="Dokümanlar" value={documents.length} tone="ok" />
+        <InsightCard icon={ClipboardList} title="Sınavlar" value={exams.length} tone="ready" />
+        <InsightCard icon={Activity} title="API durumu" value={displayStatus(health?.status || "pending")} tone={health?.status} />
+        <InsightCard icon={Database} title="Database" value={displayStatus(ready?.databaseStatus || "unknown")} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
-        <WorkspaceRecords title="Recent Documents" records={documents.slice(0, 4)} empty="Henuz document kaydi yok." />
-        <WorkspaceRecords title="Recent Exams" records={exams.slice(0, 4)} empty="Henuz exam kaydi yok." />
+        <WorkspaceRecords title="Son dokümanlar" records={documents.slice(0, 4)} empty="Henüz doküman kaydı yok." />
+        <WorkspaceRecords title="Son sınavlar" records={exams.slice(0, 4)} empty="Henüz sınav kaydı yok." />
       </div>
     </div>
   );
@@ -1167,10 +1193,10 @@ function WorkspaceRecords({ empty, records, title }) {
     <section className="panel p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <p className="label">Archive</p>
+          <p className="label">Arşiv</p>
           <h3 className="section-title">{title}</h3>
         </div>
-        <Badge tone={records.length ? "ok" : "idle"}>{records.length} records</Badge>
+        <Badge tone={records.length ? "ok" : "idle"}>{records.length} kayıt</Badge>
       </div>
       <ArchiveList records={records} empty={empty} />
     </section>
@@ -1185,8 +1211,8 @@ function ActivityWorkspace({ documents, exams }) {
   return (
     <section className="panel p-5">
       <div className="mb-5">
-        <p className="label">Activity</p>
-        <h3 className="section-title">Islem gecmisi</h3>
+        <p className="label">İşlem geçmişi</p>
+        <h3 className="section-title">Son hareketler</h3>
       </div>
       {events.length ? (
         <div className="grid gap-3">
@@ -1197,13 +1223,13 @@ function ActivityWorkspace({ documents, exams }) {
                   <p className="font-bold text-ink">{event.title || event.fileName || event.documentId}</p>
                   <p className="mt-1 text-xs text-muted">{parseRecordDate(event.updatedAt || event.createdAt)}</p>
                 </div>
-                <Badge tone={event.status}>{event.status || "recorded"}</Badge>
+                <Badge tone={event.status}>{displayStatus(event.status || "recorded")}</Badge>
               </div>
             </article>
           ))}
         </div>
       ) : (
-        <p className="text-sm text-muted">Henuz islem gecmisi yok.</p>
+        <p className="text-sm text-muted">Henüz işlem geçmişi yok.</p>
       )}
     </section>
   );

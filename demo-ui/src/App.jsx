@@ -832,10 +832,10 @@ function App() {
 }
 
 const appNav = [
-  { to: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "documents", label: "Documents", icon: FileText },
-  { to: "exams", label: "Exams", icon: ClipboardList },
-  { to: "activity", label: "Activity", icon: Activity },
+  { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/app/documents", label: "Documents", icon: FileText },
+  { to: "/app/exams", label: "Exams", icon: ClipboardList },
+  { to: "/app/activity", label: "Activity", icon: Activity },
 ];
 
 function ProductApp() {

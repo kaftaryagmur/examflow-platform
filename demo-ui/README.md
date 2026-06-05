@@ -5,6 +5,7 @@ Bu klasor ExamFlow sunumu icin React + Vite + Tailwind tabanli demo arayuzunu ba
 ## Kapsam
 
 - `/demo/` altinda calisan public demo UI
+- `/app/` altinda calisan authenticated frontend shell
 - `/health` ve `/ready` durumlarini gosterme
 - demo kullanici icin register/login akisi
 - JWT ile protected `/publish` istegi gonderme
@@ -31,6 +32,7 @@ Tarayicida ac:
 
 ```text
 http://127.0.0.1:5173/demo/
+http://127.0.0.1:5173/app/
 ```
 
 Varsayilan API Base URL:
@@ -53,6 +55,7 @@ Tarayicida:
 
 ```text
 http://127.0.0.1:5500/demo/
+http://127.0.0.1:5500/app/
 ```
 
 Container icindeki nginx `/api/` isteklerini Kubernetes icindeki `api-service` servisine proxy'ler.
@@ -78,6 +81,7 @@ kubectl get svc demo-ui -n examflow
 
 ```text
 http://<DEMO_UI_EXTERNAL_IP>/demo/
+http://<DEMO_UI_EXTERNAL_IP>/app/
 ```
 
 Not: UI dosya binary'sini upload etmez; backend'in mevcut `/publish` kontratina uygun olarak `documentId`, `fileName` ve `source` alanlari ile event olusturur.

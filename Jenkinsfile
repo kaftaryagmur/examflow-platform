@@ -254,7 +254,7 @@ pipeline {
                     cd k8s/overlays/prod
 
                     echo "Pinning kustomize image tags to build: $IMAGE_TAG"
-                    sed -i "s/newTag: latest/newTag: $IMAGE_TAG/g" kustomization.yaml
+                    sed -i "s/newTag: latest/newTag: '$IMAGE_TAG'/g" kustomization.yaml
 
                     echo "Rendered manifest preview:"
                     kubectl kustomize .

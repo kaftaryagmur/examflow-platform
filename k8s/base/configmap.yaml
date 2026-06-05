@@ -4,7 +4,7 @@ metadata:
   name: examflow-config
   namespace: examflow
 data:
-  GCP_PROJECT_ID: "bitirme-pubsub"
+  GCP_PROJECT_ID: "project-ae272ac8-a64f-4afa-8b7"
   PUBSUB_TOPIC: "document-events"
   PUBSUB_SUBSCRIPTION: "document-events-worker"
   PUBSUB_PROCESSED_TOPIC: "document-events"

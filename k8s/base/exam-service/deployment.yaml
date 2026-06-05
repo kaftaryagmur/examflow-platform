@@ -17,7 +17,7 @@ spec:
       serviceAccountName: examflow-ksa
       containers:
         - name: exam-service
-          image: europe-west1-docker.pkg.dev/bitirme-pubsub/examflow-images/examflow-exam:latest
+          image: europe-west1-docker.pkg.dev/project-ae272ac8-a64f-4afa-8b7/examflow-images/examflow-exam:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

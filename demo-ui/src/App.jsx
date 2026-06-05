@@ -1,5 +1,6 @@
 import {
   Activity,
+  AlertCircle,
   CheckCircle2,
   ClipboardList,
   Cloud,
@@ -17,19 +18,11 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react";
-import React from "react";
 import { useEffect, useMemo, useState } from "react";
 
 const defaultBaseUrl = "/api";
 const demoPassword = "ExamFlowDemo2026";
 const sessionKey = "examflow-demo-session";
-
-const initialFlow = [
-  { id: "session", label: "JWT Session", status: "waiting" },
-  { id: "publish", label: "Document Event", status: "waiting" },
-  { id: "documents", label: "Documents", status: "waiting" },
-  { id: "exams", label: "Exams", status: "waiting" },
-];
 
 const views = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -37,11 +30,17 @@ const views = [
   { id: "exams", label: "Exams", icon: ClipboardList },
 ];
 
+const emptyTimeline = [
+  { id: "received", label: "received", detail: "API Service", status: "waiting" },
+  { id: "published", label: "published", detail: "Pub/Sub Event", status: "waiting" },
+  { id: "processing", label: "processing", detail: "Worker Service", status: "waiting" },
+  { id: "validated", label: "validated", detail: "Validation Service", status: "waiting" },
+  { id: "failed", label: "failed", detail: "Error State", status: "waiting" },
+];
+
 function readStoredSession() {
   const raw = window.localStorage.getItem(sessionKey);
-  if (!raw) {
-    return null;
-  }
+  if (!raw) return null;
 
   try {
     return JSON.parse(raw);
@@ -55,25 +54,33 @@ function compactTimestamp(date) {
   return date.toISOString().replace(new RegExp("[\\-:.TZ]", "g"), "").slice(0, 14);
 }
 
-function statusTone(status) {
-  if (status === "ok" || status === "ready" || status === "authenticated") {
+function delay(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function toneClass(tone = "idle") {
+  if (["ok", "ready", "authenticated", "accepted", "validated", "uploaded"].includes(tone)) {
     return "border-neon-green/40 bg-neon-green/10 text-neon-green";
   }
-  if (status === "degraded" || status === "pending" || status === "running") {
+  if (["running", "processing", "degraded", "pending"].includes(tone)) {
     return "border-neon-amber/40 bg-neon-amber/10 text-neon-amber";
   }
-  if (status === "error" || status === "failed") {
+  if (["failed", "error", "invalid"].includes(tone)) {
     return "border-danger/50 bg-danger/10 text-danger";
   }
   return "border-space-line bg-white/5 text-muted";
 }
 
-function Badge({ children, tone = "idle" }) {
-  return (
-    <span className={`inline-flex h-7 items-center rounded-full border px-3 text-xs font-semibold ${statusTone(tone)}`}>
-      {children}
-    </span>
-  );
+function parseRecordDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("tr-TR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
 }
 
 async function parseResponse(response) {
@@ -87,6 +94,28 @@ async function parseResponse(response) {
   return { ok: response.ok, status: response.status, body };
 }
 
+function responseMessage(method, path, status, body, apiBaseUrl) {
+  if (body === null || body === "") {
+    if (apiBaseUrl.trim() === "/api") {
+      return `${method} ${path} returned ${status}. API proxy yanit vermedi. api-service icin port-forward acik mi? Komut: kubectl port-forward service/api-service 8080:80 -n examflow`;
+    }
+    return `${method} ${path} returned ${status}. API yaniti bos geldi. API Base URL degerini ve api-service durumunu kontrol et.`;
+  }
+
+  const text = typeof body === "string" ? body.trim() : JSON.stringify(body);
+  if (text.includes("auth store unavailable")) {
+    return `${method} ${path} returned ${status}. Auth store hazir degil; api-service MongoDB baglantisi olmadan register/login yapamaz. /ready icindeki databaseStatus degerini kontrol et.`;
+  }
+  if (text.includes("auth token signing unavailable")) {
+    return `${method} ${path} returned ${status}. JWT_SECRET api-service icin hazir degil. Kubernetes Secret veya local env ayarini kontrol et.`;
+  }
+  if (text.includes("document store unavailable")) {
+    return `${method} ${path} returned ${status}. Document store hazir degil; MongoDB baglantisi gerekli.`;
+  }
+
+  return `${method} ${path} returned ${status}: ${text || "request failed"}`;
+}
+
 function App() {
   const [activeView, setActiveView] = useState("dashboard");
   const [apiBaseUrl, setApiBaseUrl] = useState(defaultBaseUrl);
@@ -97,12 +126,14 @@ function App() {
   const [exams, setExams] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [source, setSource] = useState("demo-ui");
-  const [flow, setFlow] = useState(initialFlow);
+  const [timeline, setTimeline] = useState(emptyTimeline);
   const [lastResponse, setLastResponse] = useState(null);
+  const [lastDocumentId, setLastDocumentId] = useState("");
   const [busy, setBusy] = useState("");
+  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  const documentId = useMemo(() => {
+  const demoDocumentId = useMemo(() => {
     return `demo-${compactTimestamp(new Date())}`;
   }, [selectedFile]);
 
@@ -110,16 +141,19 @@ function App() {
     return `${apiBaseUrl.replace(/\/+$/, "")}${path}`;
   }
 
-  function updateFlow(id, status) {
-    setFlow((items) => items.map((item) => (item.id === id ? { ...item, status } : item)));
+  function setStep(id, status) {
+    setTimeline((items) => items.map((item) => (item.id === id ? { ...item, status } : item)));
+  }
+
+  function resetTimeline() {
+    setTimeline(emptyTimeline);
   }
 
   async function request(path, options = {}) {
     const response = await fetch(apiPath(path), options);
     const parsed = await parseResponse(response);
     if (!parsed.ok) {
-      const message = typeof parsed.body === "string" ? parsed.body : JSON.stringify(parsed.body);
-      throw new Error(`${options.method || "GET"} ${path} returned ${parsed.status}: ${message || "request failed"}`);
+      throw new Error(responseMessage(options.method || "GET", path, parsed.status, parsed.body, apiBaseUrl));
     }
     return parsed.body;
   }
@@ -132,6 +166,8 @@ function App() {
       setHealth(healthBody);
       setReady(readyBody);
     } catch (err) {
+      setHealth({ status: "error", service: "api-service", mode: "unreachable" });
+      setReady({ status: "error", databaseStatus: "unknown" });
       setError(err.message);
     } finally {
       setBusy("");
@@ -141,7 +177,7 @@ function App() {
   async function startDemoSession() {
     setBusy("session");
     setError("");
-    updateFlow("session", "running");
+    setNotice("");
     const email = session?.email || `demo-${Date.now()}@examflow.local`;
     const displayName = "Demo User";
 
@@ -168,12 +204,10 @@ function App() {
       const nextSession = { email, token: login.token, user: login.user };
       setSession(nextSession);
       window.localStorage.setItem(sessionKey, JSON.stringify(nextSession));
-      updateFlow("session", "ok");
-      setLastResponse({ action: "demo-session", body: login });
+      setLastResponse({ action: "auth/login", body: login });
       await refreshArchive(nextSession.token);
       return nextSession;
     } catch (err) {
-      updateFlow("session", "failed");
       setError(err.message);
       return null;
     } finally {
@@ -181,32 +215,61 @@ function App() {
     }
   }
 
+  async function loadArchive(token = session?.token) {
+    if (!token) {
+      throw new Error("Archive kayitlari icin once demo session baslatilmali.");
+    }
+
+    const headers = { Authorization: `Bearer ${token}` };
+    const [documentBody, examBody] = await Promise.all([
+      request("/documents", { headers }),
+      request("/exams", { headers }),
+    ]);
+    const nextDocuments = documentBody.documents || [];
+    const nextExams = examBody.exams || [];
+    setDocuments(nextDocuments);
+    setExams(nextExams);
+    return { documents: nextDocuments, exams: nextExams };
+  }
+
   async function refreshArchive(token = session?.token) {
     if (!token) {
-      setError("Archive kayitlarini okumak icin once Demo Baslat ile JWT session olusturun.");
-      return;
+      setError("Archive kayitlari icin once demo session baslatilmali.");
+      return null;
     }
+
     setBusy("archive");
     setError("");
     try {
-      const headers = { Authorization: `Bearer ${token}` };
-      const [documentBody, examBody] = await Promise.all([
-        request("/documents", { headers }),
-        request("/exams", { headers }),
-      ]);
-      setDocuments(documentBody.documents || []);
-      setExams(examBody.exams || []);
-      updateFlow("documents", "ok");
-      updateFlow("exams", "ok");
+      return await loadArchive(token);
     } catch (err) {
-      if (err.message.includes("returned 404")) {
-        setError("Archive endpointleri bu GKE deploy'unda henuz yok. SCRUM-40 kodu develop'ta, ancak canli api-service image'i /documents veya /exams endpointlerini icermiyor.");
-      } else {
-        setError(err.message);
-      }
+      setError(err.message);
+      return null;
     } finally {
       setBusy("");
     }
+  }
+
+  async function waitForExamRecord(token, documentId) {
+    setStep("processing", "running");
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await delay(attempt === 0 ? 900 : 1500);
+      const archive = await loadArchive(token);
+      const exam = archive.exams.find((record) => record.documentId === documentId);
+      if (!exam) continue;
+
+      if (exam.status === "failed" || exam.validationResult === "invalid") {
+        setStep("processing", "ok");
+        setStep("failed", "failed");
+      } else {
+        setStep("processing", "ok");
+        setStep("validated", "ok");
+      }
+      return exam;
+    }
+
+    setNotice("Exam kaydi henuz gelmedi. Event akisi arka planda devam ediyor olabilir.");
+    return null;
   }
 
   async function submitDocument(event) {
@@ -215,28 +278,38 @@ function App() {
     if (!activeSession?.token) {
       activeSession = await startDemoSession();
     }
-    if (!activeSession?.token) {
-      return;
-    }
+    if (!activeSession?.token) return;
 
-    const fileName = selectedFile?.name || "demo-document.pdf";
-    const payload = { documentId, fileName, source };
+    const documentId = `demo-${compactTimestamp(new Date())}`;
+    const payload = {
+      documentId,
+      fileName: selectedFile?.name || "demo-document.pdf",
+      source: source.trim() || "demo-ui",
+    };
+
+    resetTimeline();
+    setLastDocumentId(documentId);
     setBusy("publish");
     setError("");
-    updateFlow("publish", "running");
+    setNotice("");
+    setStep("received", "running");
 
     try {
       const body = await request("/publish", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${activeSession.token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${activeSession.token}`,
+        },
         body: JSON.stringify(payload),
       });
       setLastResponse({ action: "publish", request: payload, body });
-      updateFlow("publish", "ok");
-      await refreshArchive(activeSession.token);
-      setActiveView("documents");
+      setStep("received", "ok");
+      setStep("published", "ok");
+      await waitForExamRecord(activeSession.token, documentId);
+      setActiveView("dashboard");
     } catch (err) {
-      updateFlow("publish", "failed");
+      setStep("failed", "failed");
       setError(err.message);
     } finally {
       setBusy("");
@@ -248,8 +321,11 @@ function App() {
     setSession(null);
     setDocuments([]);
     setExams([]);
-    setFlow(initialFlow);
     setLastResponse(null);
+    setLastDocumentId("");
+    setNotice("");
+    setError("");
+    resetTimeline();
     setActiveView("dashboard");
   }
 
@@ -257,24 +333,18 @@ function App() {
     refreshStatus();
   }, []);
 
-  useEffect(() => {
-    if (session?.token) {
-      updateFlow("session", "ok");
-    }
-  }, [session?.token]);
-
   return (
     <main className="min-h-screen overflow-hidden">
       <header className="border-b border-space-line bg-black/30 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1500px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-neon-cyan/40 bg-gradient-to-br from-cyber-purple/80 to-neon-cyan/60 text-xl font-black shadow-neon-cyan">
+            <div className="flex min-w-0 items-center gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-neon-cyan/40 bg-gradient-to-br from-cyber-purple/80 to-neon-cyan/60 text-xl font-black text-white shadow-neon-cyan">
                 E
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="label">ExamFlow</p>
-                <h1 className="text-2xl font-black text-ink sm:text-3xl">Live Analysis Dashboard</h1>
+                <h1 className="truncate text-2xl font-black text-ink sm:text-3xl">Live Analysis Dashboard</h1>
               </div>
               <Badge tone={health?.status || "idle"}>{health?.mode ? `GKE ${health.mode}` : "GKE Live"}</Badge>
             </div>
@@ -309,47 +379,49 @@ function App() {
                 );
               })}
             </nav>
-
             <div className="flex flex-wrap gap-2">
-              <Signal icon={ShieldCheck} label="JWT" value={session?.token ? "Authenticated" : "Idle"} tone={session?.token ? "ok" : "idle"} />
-              <Signal icon={Database} label="MongoDB" value={ready?.databaseStatus || "Unknown"} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
-              <Signal icon={Activity} label="/health" value={health?.status || "Pending"} tone={health?.status} />
-              <Signal icon={Server} label="/ready" value={ready?.status || "Pending"} tone={ready?.status} />
+              <StatusPill icon={ShieldCheck} label="JWT" value={session?.token ? "Authenticated" : "Idle"} tone={session?.token ? "ok" : "idle"} />
+              <StatusPill icon={Database} label="MongoDB" value={ready?.databaseStatus || "Unknown"} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
+              <StatusPill icon={Activity} label="/health" value={health?.status || "Pending"} tone={health?.status} />
+              <StatusPill icon={Server} label="/ready" value={ready?.status || "Pending"} tone={ready?.status} />
             </div>
           </div>
         </div>
       </header>
 
       <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
+        {error ? <Alert tone="failed" message={error} /> : null}
+        {notice ? <Alert tone="running" message={notice} /> : null}
+
         {activeView === "dashboard" ? (
-          <DashboardView
+          <Dashboard
             busy={busy}
+            demoDocumentId={demoDocumentId}
             documents={documents}
-            error={error}
             exams={exams}
-            flow={flow}
             health={health}
+            lastDocumentId={lastDocumentId}
             lastResponse={lastResponse}
-            onResetSession={resetSession}
-            onStartSession={startDemoSession}
-            onSubmitDocument={submitDocument}
+            onReset={resetSession}
+            onStart={startDemoSession}
+            onSubmit={submitDocument}
             ready={ready}
             selectedFile={selectedFile}
             session={session}
             setSelectedFile={setSelectedFile}
             setSource={setSource}
             source={source}
+            timeline={timeline}
           />
         ) : null}
 
         {activeView === "documents" ? (
           <ArchiveView
             busy={busy}
-            empty="Henuz document kaydi yok."
-            error={error}
+            empty="Document kaydi bulunamadi."
             icon={FileText}
-            onStartSession={startDemoSession}
             onRefresh={() => refreshArchive()}
+            onStart={startDemoSession}
             records={documents}
             session={session}
             title="Documents"
@@ -359,11 +431,10 @@ function App() {
         {activeView === "exams" ? (
           <ArchiveView
             busy={busy}
-            empty="Henuz exam kaydi yok."
-            error={error}
+            empty="Exam kaydi bulunamadi."
             icon={ClipboardList}
-            onStartSession={startDemoSession}
             onRefresh={() => refreshArchive()}
+            onStart={startDemoSession}
             records={exams}
             session={session}
             title="Exams"
@@ -374,23 +445,24 @@ function App() {
   );
 }
 
-function DashboardView({
+function Dashboard({
   busy,
+  demoDocumentId,
   documents,
-  error,
   exams,
-  flow,
   health,
+  lastDocumentId,
   lastResponse,
-  onResetSession,
-  onStartSession,
-  onSubmitDocument,
+  onReset,
+  onStart,
+  onSubmit,
   ready,
   selectedFile,
   session,
   setSelectedFile,
   setSource,
   source,
+  timeline,
 }) {
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(260px,0.8fr)_minmax(420px,1.3fr)_minmax(300px,0.9fr)]">
@@ -398,16 +470,16 @@ function DashboardView({
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <p className="label">Input</p>
-            <h2 className="mt-1 text-xl font-bold">Lecture Note</h2>
+            <h2 className="mt-1 text-xl font-bold text-ink">Lecture Note</h2>
           </div>
           <Badge tone={session?.token ? "ok" : "idle"}>{session?.token ? "Token Ready" : "No Token"}</Badge>
         </div>
 
-        <form onSubmit={onSubmitDocument}>
+        <form onSubmit={onSubmit}>
           <label className="block rounded-lg border border-dashed border-cyber-purple/50 bg-black/25 p-5 text-center transition hover:border-neon-cyan/70">
             <FileUp className="mx-auto h-12 w-12 text-cyber-purple" />
             <span className="mt-4 block truncate text-sm font-semibold text-ink">{selectedFile?.name || "demo-document.pdf"}</span>
-            <span className="mt-1 block text-xs text-muted">document.uploaded</span>
+            <span className="mt-1 block text-xs text-muted">documentId: {demoDocumentId}</span>
             <input
               className="sr-only"
               type="file"
@@ -422,11 +494,11 @@ function DashboardView({
           </label>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-            <button className="btn btn-primary" type="button" onClick={onStartSession} disabled={busy === "session"}>
+            <button className="btn btn-primary" type="button" onClick={onStart} disabled={busy === "session"}>
               {busy === "session" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               Demo Baslat
             </button>
-            <button className="btn btn-secondary" type="button" onClick={onResetSession}>
+            <button className="btn btn-secondary" type="button" onClick={onReset}>
               <RotateCcw className="h-4 w-4" />
               Sifirla
             </button>
@@ -437,18 +509,16 @@ function DashboardView({
             Publish Event
           </button>
         </form>
-
-        {error ? <div className="mt-4 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm font-medium text-danger">{error}</div> : null}
       </section>
 
-      <WorkflowPanel flow={flow} busy={busy} />
+      <WorkflowPanel busy={busy} documents={documents} exams={exams} lastDocumentId={lastDocumentId} timeline={timeline} />
 
       <section className="space-y-5">
         <section className="panel p-5">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <p className="label">Generated Content</p>
-              <h2 className="mt-1 text-xl font-bold">MongoDB Storage</h2>
+              <h2 className="mt-1 text-xl font-bold text-ink">MongoDB Storage</h2>
             </div>
             <Database className="h-5 w-5 text-neon-magenta" />
           </div>
@@ -461,7 +531,7 @@ function DashboardView({
 
         <section className="panel p-5">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-bold">Infrastructure Metrics</h2>
+            <h2 className="text-lg font-bold text-ink">Infrastructure Metrics</h2>
             <Cpu className="h-5 w-5 text-neon-green" />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -472,25 +542,24 @@ function DashboardView({
           </div>
         </section>
 
-        <LastResponsePanel lastResponse={lastResponse} />
+        <LastResponse lastResponse={lastResponse} />
       </section>
     </div>
   );
 }
 
-function WorkflowPanel({ flow, busy }) {
-  const sessionState = flow.find((item) => item.id === "session")?.status;
-  const publishState = flow.find((item) => item.id === "publish")?.status;
-  const documentsState = flow.find((item) => item.id === "documents")?.status;
-  const examsState = flow.find((item) => item.id === "exams")?.status;
+function WorkflowPanel({ busy, documents, exams, lastDocumentId, timeline }) {
+  const stateById = Object.fromEntries(timeline.map((item) => [item.id, item.status]));
+  const publishState = stateById.published === "ok" ? "ok" : stateById.received;
+  const validationState = stateById.failed === "failed" ? "failed" : stateById.validated;
 
   const nodes = [
-    { label: "API Service", icon: Server, state: publishState, detail: "protected /publish" },
-    { label: "Pub/Sub", icon: Cloud, state: publishState, detail: "document-events" },
-    { label: "Worker", icon: Cpu, state: publishState === "ok" ? "running" : publishState, detail: "processing" },
-    { label: "Validation", icon: ShieldCheck, state: examsState, detail: "validation result" },
-    { label: "Exam Service", icon: ClipboardList, state: examsState, detail: "exam lifecycle" },
-    { label: "MongoDB", icon: Database, state: documentsState, detail: "documents / exams" },
+    { label: "API Service", icon: Server, state: stateById.received, detail: "protected /publish" },
+    { label: "Pub/Sub", icon: Cloud, state: stateById.published, detail: "document-events" },
+    { label: "Worker", icon: Cpu, state: stateById.processing, detail: "processing" },
+    { label: "Validation", icon: ShieldCheck, state: validationState, detail: "validation result" },
+    { label: "Exam Service", icon: ClipboardList, state: validationState, detail: "exam lifecycle" },
+    { label: "MongoDB", icon: Database, state: documents.length || exams.length ? "ok" : "waiting", detail: "documents / exams" },
   ];
 
   return (
@@ -498,8 +567,8 @@ function WorkflowPanel({ flow, busy }) {
       <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyber-purple via-neon-cyan to-neon-magenta" />
       <div className="mb-5 flex items-center justify-between">
         <div>
-          <p className="label">Event-Drıven Workflow</p>
-          <h2 className="mt-1 text-xl font-bold">Note Processed</h2>
+          <p className="label">Event-Driven Workflow</p>
+          <h2 className="mt-1 text-xl font-bold text-ink">Note Processed</h2>
         </div>
         <Badge tone={busy ? "running" : publishState === "ok" ? "ok" : "idle"}>{busy ? "Running" : "Ready"}</Badge>
       </div>
@@ -514,8 +583,8 @@ function WorkflowPanel({ flow, busy }) {
         <div className="flex items-center justify-center py-4">
           <div className="flex h-36 w-36 flex-col items-center justify-center rounded-full border border-neon-cyan/50 bg-black/40 text-center shadow-neon-cyan">
             <KeyRound className="h-7 w-7 text-neon-cyan" />
-            <p className="mt-2 text-sm font-bold">System Core</p>
-            <p className="text-xs text-muted">{sessionState === "ok" ? "JWT verified" : "waiting"}</p>
+            <p className="mt-2 text-sm font-bold text-ink">System Core</p>
+            <p className="text-xs text-muted">{lastDocumentId ? lastDocumentId : "waiting"}</p>
           </div>
         </div>
 
@@ -526,9 +595,9 @@ function WorkflowPanel({ flow, busy }) {
         </div>
       </div>
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-4">
-        {flow.map((item) => (
-          <FlowStep key={item.id} item={item} />
+      <div className="mt-6 grid gap-3 sm:grid-cols-5">
+        {timeline.map((item) => (
+          <TimelineStep key={item.id} item={item} />
         ))}
       </div>
     </section>
@@ -549,61 +618,11 @@ function WorkflowNode({ node }) {
           <Icon className="h-5 w-5" />
         </div>
         <div className="min-w-0">
-          <p className="truncate text-sm font-bold">{node.label}</p>
+          <p className="truncate text-sm font-bold text-ink">{node.label}</p>
           <p className="truncate text-xs text-muted">{node.detail}</p>
         </div>
       </div>
     </article>
-  );
-}
-
-function ArchiveView({ busy, empty, error, icon: Icon, onRefresh, onStartSession, records, session, title }) {
-  if (!session?.token) {
-    return (
-      <section className="panel glass-grid p-6">
-        <p className="label">Authenticated Area</p>
-        <div className="mt-2 flex items-center gap-3">
-          <Icon className="h-6 w-6 text-neon-cyan" />
-          <h2 className="text-xl font-semibold">{title}</h2>
-        </div>
-        <button className="btn btn-primary mt-5" type="button" onClick={onStartSession} disabled={busy === "session"}>
-          {busy === "session" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          Demo Baslat
-        </button>
-      </section>
-    );
-  }
-
-  return (
-    <section className="space-y-5">
-      <div className="panel glass-grid p-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <Icon className="h-6 w-6 text-neon-cyan" />
-            <div>
-              <p className="label">Archive</p>
-              <h2 className="mt-1 text-xl font-semibold">{title}</h2>
-            </div>
-          </div>
-          <button className="btn btn-secondary" type="button" onClick={onRefresh} disabled={busy === "archive"}>
-            {busy === "archive" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Refresh
-          </button>
-        </div>
-      </div>
-      {error ? <div className="rounded-lg border border-danger/40 bg-danger/10 p-4 text-sm font-medium text-danger">{error}</div> : null}
-      <ArchivePanel records={records} empty={empty} />
-    </section>
-  );
-}
-
-function Signal({ icon: Icon, label, value, tone }) {
-  return (
-    <div className={`flex h-10 items-center gap-2 rounded-md border px-3 ${statusTone(tone)}`}>
-      <Icon className="h-4 w-4" />
-      <span className="text-xs font-semibold">{label}</span>
-      <span className="text-xs">{value}</span>
-    </div>
   );
 }
 
@@ -626,69 +645,175 @@ function Metric({ label, value, tone }) {
   return (
     <div className="rounded-lg border border-space-line bg-black/25 p-3">
       <p className="text-[11px] font-semibold uppercase tracking-normal text-muted">{label}</p>
-      <p className={`mt-2 truncate text-sm font-bold ${statusTone(tone).includes("green") ? "text-neon-green" : statusTone(tone).includes("amber") ? "text-neon-amber" : "text-ink"}`}>
+      <p className={`mt-2 truncate text-sm font-bold ${toneClass(tone).includes("green") ? "text-neon-green" : toneClass(tone).includes("amber") ? "text-neon-amber" : "text-ink"}`}>
         {value}
       </p>
     </div>
   );
 }
 
-function LastResponsePanel({ lastResponse }) {
+function ArchiveView({ busy, empty, icon: Icon, onRefresh, onStart, records, session, title }) {
+  if (!session?.token) {
+    return (
+      <section className="panel glass-grid p-6">
+        <div className="flex items-center gap-3">
+          <Icon className="h-6 w-6 text-neon-cyan" />
+          <div>
+            <p className="label">Protected archive</p>
+            <h2 className="mt-1 text-xl font-semibold text-ink">{title}</h2>
+          </div>
+        </div>
+        <button className="btn btn-primary mt-5" type="button" onClick={onStart} disabled={busy === "session"}>
+          {busy === "session" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+          Baslat
+        </button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-4">
+      <div className="panel glass-grid p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <Icon className="h-6 w-6 text-neon-cyan" />
+            <div>
+              <p className="label">Archive</p>
+              <h2 className="mt-1 text-xl font-semibold text-ink">{title}</h2>
+            </div>
+          </div>
+          <button className="btn btn-secondary" type="button" onClick={onRefresh} disabled={busy === "archive"}>
+            {busy === "archive" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Refresh
+          </button>
+        </div>
+      </div>
+      <ArchiveList records={records} empty={empty} />
+    </section>
+  );
+}
+
+function Badge({ children, tone = "idle" }) {
+  return <span className={`inline-flex h-7 items-center rounded-full border px-3 text-xs font-semibold ${toneClass(tone)}`}>{children}</span>;
+}
+
+function StatusPill({ icon: Icon, label, value, tone }) {
+  return (
+    <div className={`flex h-9 items-center gap-2 rounded-md border px-3 ${toneClass(tone)}`}>
+      <Icon className="h-4 w-4" />
+      <span className="text-xs font-semibold">{label}</span>
+      <span className="text-xs">{value}</span>
+    </div>
+  );
+}
+
+function Alert({ message, tone }) {
+  const Icon = tone === "failed" ? AlertCircle : Activity;
+  return (
+    <div className={`mb-4 flex items-start gap-3 rounded-lg border p-4 text-sm font-medium backdrop-blur ${toneClass(tone)}`}>
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+      <span>{message}</span>
+    </div>
+  );
+}
+
+function TimelineStep({ item }) {
+  const done = item.status === "ok";
+  const failed = item.status === "failed";
+  const running = item.status === "running";
+  const Icon = done ? CheckCircle2 : failed ? XCircle : running ? Loader2 : Activity;
+  return (
+    <article className={`rounded-lg border bg-black/25 p-4 ${toneClass(item.status)}`}>
+      <Icon className={`h-5 w-5 ${running ? "animate-spin" : ""}`} />
+      <h3 className="mt-3 text-sm font-bold capitalize">{item.label}</h3>
+      <p className="mt-1 truncate text-xs opacity-80">{item.detail}</p>
+    </article>
+  );
+}
+
+function PipelineNode({ icon: Icon, title, value, tone }) {
+  return (
+    <div className="rounded-lg border border-space-line bg-black/25 p-4">
+      <div className="flex items-center gap-3">
+        <div className={`flex h-9 w-9 items-center justify-center rounded-md border ${toneClass(tone)}`}>
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-ink">{title}</p>
+          <p className="truncate text-xs text-muted">{value}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HealthRow({ label, value, tone }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-space-line pb-3 last:border-0 last:pb-0">
+      <span className="text-sm font-medium text-muted">{label}</span>
+      <Badge tone={tone}>{value}</Badge>
+    </div>
+  );
+}
+
+function Info({ label, value }) {
+  return (
+    <div>
+      <dt className="label">{label}</dt>
+      <dd className="mt-1 truncate font-semibold text-ink">{value}</dd>
+    </div>
+  );
+}
+
+function LastResponse({ lastResponse }) {
   return (
     <section className="panel p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Last API Response</h2>
-        <Badge tone={lastResponse ? "ok" : "idle"}>{lastResponse ? lastResponse.action : "Waiting"}</Badge>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="label">API</p>
+          <h2 className="section-title">Last Response</h2>
+        </div>
+        <Badge tone={lastResponse ? "ok" : "idle"}>{lastResponse ? lastResponse.action : "waiting"}</Badge>
       </div>
-      <pre className="max-h-56 overflow-auto rounded-md border border-space-line bg-black/55 p-4 text-xs leading-5 text-slate-100">
+      <pre className="mt-4 max-h-64 overflow-auto rounded-md border border-space-line bg-black/55 p-4 text-xs leading-5 text-slate-100">
         {lastResponse ? JSON.stringify(lastResponse, null, 2) : "No response yet."}
       </pre>
     </section>
   );
 }
 
-function FlowStep({ item }) {
-  const done = item.status === "ok";
-  const failed = item.status === "failed";
-  const running = item.status === "running";
-  const Icon = done ? CheckCircle2 : failed ? XCircle : running ? Loader2 : Activity;
+function ArchiveList({ records, empty }) {
+  if (!records.length) {
+    return <p className="panel p-5 text-sm text-muted">{empty}</p>;
+  }
+
   return (
-    <div className="rounded-lg border border-space-line bg-black/25 p-3">
-      <Icon className={`h-5 w-5 ${running ? "animate-spin text-neon-amber" : done ? "text-neon-green" : failed ? "text-danger" : "text-muted"}`} />
-      <p className="mt-3 text-sm font-semibold">{item.label}</p>
-      <p className="mt-1 text-xs capitalize text-muted">{item.status}</p>
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {records.map((record) => (
+        <article key={record.id || `${record.documentId}-${record.createdAt}`} className="panel p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="truncate text-sm font-bold text-ink">{record.title || record.fileName || record.documentId}</h3>
+              <p className="mt-1 truncate text-xs text-muted">{record.documentId}</p>
+            </div>
+            <Badge tone={record.status}>{record.status || "unknown"}</Badge>
+          </div>
+          <dl className="mt-4 space-y-2 text-xs">
+            <ArchiveRow label="Result" value={record.validationResult || record.source || "-"} />
+            <ArchiveRow label="Created" value={parseRecordDate(record.createdAt)} />
+            <ArchiveRow label="Updated" value={parseRecordDate(record.updatedAt)} />
+          </dl>
+        </article>
+      ))}
     </div>
   );
 }
 
-function ArchivePanel({ records, empty }) {
+function ArchiveRow({ label, value }) {
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {records.length ? (
-        records.map((record) => (
-          <article key={record.id || `${record.documentId}-${record.createdAt}`} className="panel p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold">{record.title || record.fileName || record.documentId}</p>
-                <p className="mt-1 truncate text-xs text-muted">{record.documentId}</p>
-              </div>
-              <Badge tone={record.status}>{record.status || "unknown"}</Badge>
-            </div>
-            <dl className="mt-4 grid gap-2 text-xs text-muted">
-              <div className="flex justify-between gap-3">
-                <dt>Result</dt>
-                <dd className="text-right text-ink">{record.validationResult || record.source || "-"}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt>Updated</dt>
-                <dd className="text-right text-ink">{record.updatedAt || record.createdAt || "-"}</dd>
-              </div>
-            </dl>
-          </article>
-        ))
-      ) : (
-        <p className="panel p-5 text-sm text-muted">{empty}</p>
-      )}
+    <div className="flex justify-between gap-3">
+      <dt className="text-muted">{label}</dt>
+      <dd className="truncate text-right font-medium text-ink">{value}</dd>
     </div>
   );
 }

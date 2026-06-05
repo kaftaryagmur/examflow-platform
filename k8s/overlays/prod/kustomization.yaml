@@ -4,11 +4,13 @@ resources:
 namespace: examflow
 
 images:
-  - name: europe-west1-docker.pkg.dev/bitirme-pubsub/examflow-images/examflow-api
+  - name: europe-west1-docker.pkg.dev/project-ae272ac8-a64f-4afa-8b7/examflow-images/examflow-api
     newTag: latest
-  - name: europe-west1-docker.pkg.dev/bitirme-pubsub/examflow-images/examflow-exam
+  - name: europe-west1-docker.pkg.dev/project-ae272ac8-a64f-4afa-8b7/examflow-images/examflow-exam
     newTag: latest
-  - name: europe-west1-docker.pkg.dev/bitirme-pubsub/examflow-images/examflow-validation
+  - name: europe-west1-docker.pkg.dev/project-ae272ac8-a64f-4afa-8b7/examflow-images/examflow-validation
     newTag: latest
-  - name: europe-west1-docker.pkg.dev/bitirme-pubsub/examflow-images/examflow-worker
+  - name: europe-west1-docker.pkg.dev/project-ae272ac8-a64f-4afa-8b7/examflow-images/examflow-worker
+    newTag: latest
+  - name: europe-west1-docker.pkg.dev/project-ae272ac8-a64f-4afa-8b7/examflow-images/examflow-demo-ui
     newTag: latest

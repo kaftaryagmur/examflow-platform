@@ -2,13 +2,14 @@ pipeline {
     agent any
 
     environment {
-        PROJECT_ID   = "bitirme-pubsub"
+        PROJECT_ID   = "project-ae272ac8-a64f-4afa-8b7"
         REGION       = "europe-west1"
         REPOSITORY   = "examflow-images"
         IMAGE_API    = "examflow-api"
         IMAGE_EXAM   = "examflow-exam"
         IMAGE_VALIDATION = "examflow-validation"
         IMAGE_WORKER = "examflow-worker"
+        IMAGE_DEMO_UI = "examflow-demo-ui"
         CLUSTER_NAME = "examflow-cluster"
         NAMESPACE    = "examflow"
 
@@ -16,6 +17,7 @@ pipeline {
         EXAM_IMAGE_FULL   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_EXAM}"
         VALIDATION_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_VALIDATION}"
         WORKER_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_WORKER}"
+        DEMO_UI_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_DEMO_UI}"
         IMAGE_TAG         = "${BUILD_NUMBER}"
     }
 
@@ -189,21 +191,37 @@ pipeline {
             }
         }
 
+        stage('Build Demo UI Image') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                    changeRequest()
+                }
+            }
+            steps {
+                dir('demo-ui') {
+                    sh '''
+                        docker build \
+                          -t $DEMO_UI_IMAGE_FULL:$IMAGE_TAG \
+                          -t $DEMO_UI_IMAGE_FULL:latest .
+                    '''
+                }
+            }
+        }
+
         stage('GCP Auth') {
             when {
                 branch 'main'
             }
             steps {
-                withCredentials([file(credentialsId: 'gcp-sa-key', variable: 'GCP_KEY_FILE')]) {
-                    sh '''
-                        gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
-                        gcloud config set project $PROJECT_ID
-                        gcloud auth configure-docker $REGION-docker.pkg.dev -q
-                        gcloud container clusters get-credentials $CLUSTER_NAME --region=$REGION
-                        kubectl config current-context
-                        kubectl get ns $NAMESPACE
-                    '''
-                }
+                sh '''
+                    gcloud config set project $PROJECT_ID
+                    gcloud auth configure-docker $REGION-docker.pkg.dev -q
+                    gcloud container clusters get-credentials $CLUSTER_NAME --region=$REGION
+                    kubectl config current-context
+                    kubectl get ns $NAMESPACE
+                '''
             }
         }
 
@@ -221,6 +239,8 @@ pipeline {
                     docker push $VALIDATION_IMAGE_FULL:latest
                     docker push $WORKER_IMAGE_FULL:$IMAGE_TAG
                     docker push $WORKER_IMAGE_FULL:latest
+                    docker push $DEMO_UI_IMAGE_FULL:$IMAGE_TAG
+                    docker push $DEMO_UI_IMAGE_FULL:latest
                 '''
             }
         }
@@ -233,10 +253,13 @@ pipeline {
                 sh '''
                     cd k8s/overlays/prod
 
+                    echo "Pinning kustomize image tags to build: $IMAGE_TAG"
+                    sed -i "s/newTag: latest/newTag: $IMAGE_TAG/g" kustomization.yaml
+
                     echo "Rendered manifest preview:"
                     kubectl kustomize .
 
-                    echo "Exam service deployment manifest is included and image override is applied through kustomize."
+                    echo "Service deployment manifests are rendered with build-specific image tags."
 
                     kubectl apply -k .
 
@@ -244,6 +267,7 @@ pipeline {
                     kubectl rollout status deployment/exam-service -n $NAMESPACE        --timeout=180s
                     kubectl rollout status deployment/validation-service -n $NAMESPACE  --timeout=180s
                     kubectl rollout status deployment/worker-service -n $NAMESPACE      --timeout=180s
+                    kubectl rollout status deployment/demo-ui -n $NAMESPACE             --timeout=180s
                 '''
             }
         }
@@ -258,6 +282,7 @@ pipeline {
                     cleanup() {
                         if [ -n "$EF_PID" ]; then kill "$EF_PID" 2>/dev/null || true; wait "$EF_PID" 2>/dev/null || true; fi
                         if [ -n "$VF_PID" ]; then kill "$VF_PID" 2>/dev/null || true; wait "$VF_PID" 2>/dev/null || true; fi
+                        if [ -n "$DU_PID" ]; then kill "$DU_PID" 2>/dev/null || true; wait "$DU_PID" 2>/dev/null || true; fi
                         if [ -n "$PF_PID" ]; then kill "$PF_PID" 2>/dev/null || true; wait "$PF_PID" 2>/dev/null || true; fi
                     }
                     trap cleanup EXIT
@@ -273,6 +298,20 @@ pipeline {
 
                     curl -f http://127.0.0.1:8080/health
 
+                    DOCUMENTS_STATUS="$(curl -s -o /tmp/documents-smoke.txt -w "%{http_code}" http://127.0.0.1:8080/documents)"
+                    if [ "$DOCUMENTS_STATUS" != "401" ]; then
+                        echo "Expected /documents to exist and require auth with 401, got $DOCUMENTS_STATUS"
+                        cat /tmp/documents-smoke.txt
+                        exit 1
+                    fi
+
+                    EXAMS_STATUS="$(curl -s -o /tmp/exams-smoke.txt -w "%{http_code}" http://127.0.0.1:8080/exams)"
+                    if [ "$EXAMS_STATUS" != "401" ]; then
+                        echo "Expected /exams to exist and require auth with 401, got $EXAMS_STATUS"
+                        cat /tmp/exams-smoke.txt
+                        exit 1
+                    fi
+
                     kubectl port-forward service/validation-service 8081:80 -n $NAMESPACE >/tmp/validation-port-forward.log 2>&1 &
                     VF_PID=$!
 
@@ -286,6 +325,13 @@ pipeline {
                     sleep 5
 
                     curl -f http://127.0.0.1:8082/health
+
+                    kubectl port-forward service/demo-ui 5500:80 -n $NAMESPACE >/tmp/demo-ui-port-forward.log 2>&1 &
+                    DU_PID=$!
+
+                    sleep 5
+
+                    curl -f http://127.0.0.1:5500/demo/
 
                     echo "Running MongoDB insert/read smoke test..."
                     MONGO_USER="$(kubectl get secret examflow-secret -n "$NAMESPACE" -o jsonpath='{.data.MONGODB_USERNAME}' | base64 -d)"
@@ -303,6 +349,9 @@ pipeline {
 
                     kill $VF_PID || true
                     wait $VF_PID || true
+
+                    kill $DU_PID || true
+                    wait $DU_PID || true
 
                     kill $PF_PID || true
                     wait $PF_PID || true

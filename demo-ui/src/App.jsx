@@ -16,9 +16,11 @@ import {
   RotateCcw,
   Server,
   ShieldCheck,
+  User,
   XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 
 const defaultBaseUrl = "/api";
 const demoPassword = "ExamFlowDemo2026";
@@ -116,7 +118,7 @@ function responseMessage(method, path, status, body, apiBaseUrl) {
   return `${method} ${path} returned ${status}: ${text || "request failed"}`;
 }
 
-function App() {
+function DemoDashboard() {
   const [activeView, setActiveView] = useState("dashboard");
   const [apiBaseUrl, setApiBaseUrl] = useState(defaultBaseUrl);
   const [session, setSession] = useState(readStoredSession);
@@ -815,6 +817,395 @@ function ArchiveRow({ label, value }) {
       <dt className="text-muted">{label}</dt>
       <dd className="truncate text-right font-medium text-ink">{value}</dd>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Navigate to="/demo/" replace />} />
+      <Route path="/demo/*" element={<DemoDashboard />} />
+      <Route path="/app/*" element={<ProductApp />} />
+      <Route path="*" element={<Navigate to="/demo/" replace />} />
+    </Routes>
+  );
+}
+
+const appNav = [
+  { to: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "documents", label: "Documents", icon: FileText },
+  { to: "exams", label: "Exams", icon: ClipboardList },
+  { to: "activity", label: "Activity", icon: Activity },
+];
+
+function ProductApp() {
+  const [apiBaseUrl, setApiBaseUrl] = useState(defaultBaseUrl);
+  const [session, setSession] = useState(readStoredSession);
+  const [health, setHealth] = useState(null);
+  const [ready, setReady] = useState(null);
+  const [documents, setDocuments] = useState([]);
+  const [exams, setExams] = useState([]);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const navigate = useNavigate();
+
+  function apiPath(path) {
+    return `${apiBaseUrl.replace(/\/+$/, "")}${path}`;
+  }
+
+  async function appRequest(path, options = {}) {
+    const response = await fetch(apiPath(path), options);
+    const parsed = await parseResponse(response);
+    if (!parsed.ok) {
+      throw new Error(responseMessage(options.method || "GET", path, parsed.status, parsed.body, apiBaseUrl));
+    }
+    return parsed.body;
+  }
+
+  async function refreshStatus() {
+    setBusy("status");
+    setError("");
+    try {
+      const [healthBody, readyBody] = await Promise.all([appRequest("/health"), appRequest("/ready")]);
+      setHealth(healthBody);
+      setReady(readyBody);
+    } catch (err) {
+      setHealth({ status: "error", service: "api-service", mode: "unreachable" });
+      setReady({ status: "error", databaseStatus: "unknown" });
+      setError(err.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function loadArchive(token = session?.token) {
+    if (!token) return;
+    setBusy("archive");
+    setError("");
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const [documentBody, examBody] = await Promise.all([
+        appRequest("/documents", { headers }),
+        appRequest("/exams", { headers }),
+      ]);
+      setDocuments(documentBody.documents || []);
+      setExams(examBody.exams || []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handleAuth(values) {
+    setBusy("auth");
+    setError("");
+    try {
+      if (values.mode === "register") {
+        await appRequest("/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: values.email,
+            displayName: values.displayName || "ExamFlow User",
+            password: values.password,
+          }),
+        });
+      }
+
+      const login = await appRequest("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: values.email, password: values.password }),
+      });
+      const nextSession = { email: values.email, token: login.token, user: login.user };
+      setSession(nextSession);
+      window.localStorage.setItem(sessionKey, JSON.stringify(nextSession));
+      await loadArchive(nextSession.token);
+      navigate("/app/dashboard", { replace: true });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function logout() {
+    window.localStorage.removeItem(sessionKey);
+    setSession(null);
+    setDocuments([]);
+    setExams([]);
+    navigate("/app", { replace: true });
+  }
+
+  useEffect(() => {
+    refreshStatus();
+  }, []);
+
+  useEffect(() => {
+    if (session?.token) {
+      loadArchive(session.token);
+    }
+  }, [session?.token]);
+
+  if (!session?.token) {
+    return (
+      <main className="app-auth-shell">
+        <AuthPanel apiBaseUrl={apiBaseUrl} busy={busy} error={error} onApiBaseUrl={setApiBaseUrl} onSubmit={handleAuth} />
+        <AuthAside health={health} ready={ready} onRefresh={refreshStatus} busy={busy} />
+      </main>
+    );
+  }
+
+  return (
+    <main className="app-shell">
+      <aside className="app-sidebar">
+        <div className="flex items-center gap-3">
+          <div className="brand-mark">E</div>
+          <div className="min-w-0">
+            <p className="label">ExamFlow</p>
+            <h1 className="truncate text-lg font-black text-ink">Workspace</h1>
+          </div>
+        </div>
+
+        <nav className="mt-8 grid gap-2" aria-label="Application navigation">
+          {appNav.map((item) => (
+            <AppNavItem key={item.to} item={item} />
+          ))}
+        </nav>
+
+        <div className="mt-auto rounded-lg border border-space-line bg-black/25 p-4">
+          <p className="label">Signed in</p>
+          <p className="mt-1 truncate text-sm font-bold text-ink">{session.user?.displayName || session.email}</p>
+          <button className="btn btn-secondary mt-4 w-full" type="button" onClick={logout}>
+            <User className="h-4 w-4" />
+            Cikis
+          </button>
+        </div>
+      </aside>
+
+      <section className="app-main">
+        <header className="app-topbar">
+          <div>
+            <p className="label">Authenticated frontend</p>
+            <h2 className="text-2xl font-black text-ink">Product Shell</h2>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-[minmax(220px,320px)_auto] sm:items-end">
+            <label>
+              <span className="label">API Base URL</span>
+              <input className="field mt-1" value={apiBaseUrl} onChange={(event) => setApiBaseUrl(event.target.value)} />
+            </label>
+            <button className="btn btn-secondary" type="button" onClick={() => loadArchive()} disabled={busy === "archive"}>
+              {busy === "archive" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Sync
+            </button>
+          </div>
+        </header>
+
+        {error ? <Alert tone="failed" message={error} /> : null}
+
+        <Routes>
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route
+            path="dashboard"
+            element={<AppOverview documents={documents} exams={exams} health={health} ready={ready} />}
+          />
+          <Route path="documents" element={<WorkspaceRecords title="Document Archive" records={documents} empty="Henuz document kaydi yok." />} />
+          <Route path="exams" element={<WorkspaceRecords title="Exam Archive" records={exams} empty="Henuz exam kaydi yok." />} />
+          <Route path="activity" element={<ActivityWorkspace documents={documents} exams={exams} />} />
+          <Route path="*" element={<Navigate to="dashboard" replace />} />
+        </Routes>
+      </section>
+    </main>
+  );
+}
+
+function AuthPanel({ apiBaseUrl, busy, error, onApiBaseUrl, onSubmit }) {
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("demo@examflow.local");
+  const [displayName, setDisplayName] = useState("Demo User");
+  const [password, setPassword] = useState(demoPassword);
+
+  function submit(event) {
+    event.preventDefault();
+    onSubmit({ mode, email, displayName, password });
+  }
+
+  return (
+    <section className="auth-card">
+      <div className="brand-mark">E</div>
+      <p className="label mt-6">ExamFlow App</p>
+      <h1 className="mt-2 text-3xl font-black text-ink">Akilli sinav arsivi icin giris yap.</h1>
+      <p className="mt-3 text-sm leading-6 text-muted">
+        Demo arayuzu sunum akisini gosterir; bu alan authenticated urun deneyiminin baslangic kabugudur.
+      </p>
+
+      <div className="mt-6 grid grid-cols-2 gap-2 rounded-lg border border-space-line bg-black/20 p-1">
+        <button className={`segmented-btn ${mode === "login" ? "active" : ""}`} type="button" onClick={() => setMode("login")}>
+          Giris
+        </button>
+        <button className={`segmented-btn ${mode === "register" ? "active" : ""}`} type="button" onClick={() => setMode("register")}>
+          Kayit
+        </button>
+      </div>
+
+      <form className="mt-6 grid gap-4" onSubmit={submit}>
+        <label>
+          <span className="label">Email</span>
+          <input className="field mt-1" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+        </label>
+        {mode === "register" ? (
+          <label>
+            <span className="label">Display name</span>
+            <input className="field mt-1" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+          </label>
+        ) : null}
+        <label>
+          <span className="label">Password</span>
+          <input className="field mt-1" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+        </label>
+        <label>
+          <span className="label">API Base URL</span>
+          <input className="field mt-1" value={apiBaseUrl} onChange={(event) => onApiBaseUrl(event.target.value)} />
+        </label>
+        <button className="btn btn-primary" type="submit" disabled={busy === "auth"}>
+          {busy === "auth" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+          {mode === "login" ? "Workspace'e gir" : "Kayit ol ve gir"}
+        </button>
+      </form>
+
+      {error ? <p className="mt-4 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{error}</p> : null}
+    </section>
+  );
+}
+
+function AuthAside({ busy, health, onRefresh, ready }) {
+  return (
+    <section className="auth-aside panel glass-grid p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="label">Live system</p>
+          <h2 className="section-title">Backend baglantisi</h2>
+        </div>
+        <button className="btn btn-secondary" type="button" onClick={onRefresh} disabled={busy === "status"}>
+          {busy === "status" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          Refresh
+        </button>
+      </div>
+      <div className="mt-6 grid gap-3">
+        <HealthRow label="/health" value={health?.status || "pending"} tone={health?.status} />
+        <HealthRow label="/ready" value={ready?.status || "pending"} tone={ready?.status} />
+        <HealthRow label="database" value={ready?.databaseStatus || "unknown"} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
+      </div>
+      <div className="mt-8 rounded-lg border border-neon-cyan/30 bg-neon-cyan/10 p-4">
+        <p className="text-sm font-bold text-ink">Sonraki ekranlar</p>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          Document detail, exam detail, favorites ve tag isleri bu shell uzerine route bazli eklenecek.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function AppNavItem({ item }) {
+  const Icon = item.icon;
+  return (
+    <NavLink className={({ isActive }) => `app-nav-item ${isActive ? "active" : ""}`} to={item.to}>
+      <Icon className="h-4 w-4" />
+      {item.label}
+    </NavLink>
+  );
+}
+
+function AppOverview({ documents, exams, health, ready }) {
+  return (
+    <div className="grid gap-5">
+      <section className="app-hero">
+        <div>
+          <p className="label">Today</p>
+          <h3 className="mt-2 text-3xl font-black text-ink">Arsiv, sinavlar ve islem gecmisi tek calisma alaninda.</h3>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
+            Bu shell, mevcut API ile login olan kullanicinin kayitlarini okuyarak urun arayuzunun temelini kurar.
+          </p>
+        </div>
+        <Badge tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status}>MongoDB {ready?.databaseStatus || "unknown"}</Badge>
+      </section>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <InsightCard icon={FileText} title="Documents" value={documents.length} tone="ok" />
+        <InsightCard icon={ClipboardList} title="Exams" value={exams.length} tone="ready" />
+        <InsightCard icon={Activity} title="API" value={health?.status || "pending"} tone={health?.status} />
+        <InsightCard icon={Database} title="Database" value={ready?.databaseStatus || "unknown"} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <WorkspaceRecords title="Recent Documents" records={documents.slice(0, 4)} empty="Henuz document kaydi yok." />
+        <WorkspaceRecords title="Recent Exams" records={exams.slice(0, 4)} empty="Henuz exam kaydi yok." />
+      </div>
+    </div>
+  );
+}
+
+function InsightCard({ icon: Icon, title, value, tone }) {
+  return (
+    <article className="panel p-5">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="label">{title}</p>
+          <p className="mt-3 text-2xl font-black text-ink">{value}</p>
+        </div>
+        <div className={`flex h-11 w-11 items-center justify-center rounded-lg border ${toneClass(tone)}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function WorkspaceRecords({ empty, records, title }) {
+  return (
+    <section className="panel p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="label">Archive</p>
+          <h3 className="section-title">{title}</h3>
+        </div>
+        <Badge tone={records.length ? "ok" : "idle"}>{records.length} records</Badge>
+      </div>
+      <ArchiveList records={records} empty={empty} />
+    </section>
+  );
+}
+
+function ActivityWorkspace({ documents, exams }) {
+  const events = [...documents, ...exams].sort((left, right) => {
+    return new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
+  });
+
+  return (
+    <section className="panel p-5">
+      <div className="mb-5">
+        <p className="label">Activity</p>
+        <h3 className="section-title">Islem gecmisi</h3>
+      </div>
+      {events.length ? (
+        <div className="grid gap-3">
+          {events.map((event) => (
+            <article key={event.id || `${event.documentId}-${event.updatedAt}`} className="rounded-lg border border-space-line bg-black/25 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-bold text-ink">{event.title || event.fileName || event.documentId}</p>
+                  <p className="mt-1 text-xs text-muted">{parseRecordDate(event.updatedAt || event.createdAt)}</p>
+                </div>
+                <Badge tone={event.status}>{event.status || "recorded"}</Badge>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted">Henuz islem gecmisi yok.</p>
+      )}
+    </section>
   );
 }
 

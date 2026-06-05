@@ -291,21 +291,21 @@ pipeline {
                     kubectl get pods -n $NAMESPACE
                     kubectl rollout status deployment/mongodb -n $NAMESPACE --timeout=180s
 
-                    kubectl port-forward service/api-service 8080:80 -n $NAMESPACE >/tmp/api-port-forward.log 2>&1 &
+                    kubectl port-forward service/api-service 18080:80 -n $NAMESPACE >/tmp/api-port-forward.log 2>&1 &
                     PF_PID=$!
 
                     sleep 10
 
-                    curl -f http://127.0.0.1:8080/health
+                    curl -f http://127.0.0.1:18080/health
 
-                    DOCUMENTS_STATUS="$(curl -s -o /tmp/documents-smoke.txt -w "%{http_code}" http://127.0.0.1:8080/documents)"
+                    DOCUMENTS_STATUS="$(curl -s -o /tmp/documents-smoke.txt -w "%{http_code}" http://127.0.0.1:18080/documents)"
                     if [ "$DOCUMENTS_STATUS" != "401" ]; then
                         echo "Expected /documents to exist and require auth with 401, got $DOCUMENTS_STATUS"
                         cat /tmp/documents-smoke.txt
                         exit 1
                     fi
 
-                    EXAMS_STATUS="$(curl -s -o /tmp/exams-smoke.txt -w "%{http_code}" http://127.0.0.1:8080/exams)"
+                    EXAMS_STATUS="$(curl -s -o /tmp/exams-smoke.txt -w "%{http_code}" http://127.0.0.1:18080/exams)"
                     if [ "$EXAMS_STATUS" != "401" ]; then
                         echo "Expected /exams to exist and require auth with 401, got $EXAMS_STATUS"
                         cat /tmp/exams-smoke.txt

@@ -24,7 +24,8 @@ const (
 	// instead of free-form prose we would have to parse defensively.
 	generationToolName = "submit_exam_content"
 
-	maxGenerationAttempts = 3        // 1 initial + 2 retries
+	maxGenerationAttempts = 3 // 1 initial + 2 retries
+	anthropicMaxTokens    = 8192
 	maxDocumentBytes      = 20 << 20 // skip inline document content above this
 	maxDocxTextChars      = 40000    // bound prompt size for extracted DOCX text
 )
@@ -153,7 +154,7 @@ func (g *claudeQuestionGenerator) Generate(ctx context.Context, input Generation
 	messages, mode := g.buildMessages(input)
 	payload := anthropicRequest{
 		Model:     g.model,
-		MaxTokens: 4096,
+		MaxTokens: anthropicMaxTokens,
 		System: []anthropicTextBlock{
 			{
 				Type: "text",
@@ -198,7 +199,7 @@ func (g *claudeQuestionGenerator) Generate(ctx context.Context, input Generation
 			return GeneratedContent{}, lastErr // permanent error
 		}
 
-		content, err := parseGeneratedContent(responseBody)
+		content, err := parseGeneratedContent(responseBody, input.Prefs)
 		if err != nil {
 			lastErr = err
 			continue // faulty/incomplete output: retry
@@ -234,7 +235,7 @@ func (g *claudeQuestionGenerator) doRequest(ctx context.Context, body []byte) ([
 // parseGeneratedContent extracts the forced tool call's structured input and
 // validates it. Returns an error for faulty/incomplete output so the caller can
 // retry.
-func parseGeneratedContent(responseBody []byte) (GeneratedContent, error) {
+func parseGeneratedContent(responseBody []byte, prefs GenerationPrefs) (GeneratedContent, error) {
 	var decoded anthropicResponse
 	if err := json.Unmarshal(responseBody, &decoded); err != nil {
 		return GeneratedContent{}, fmt.Errorf("decode response: %w", err)
@@ -251,15 +252,17 @@ func parseGeneratedContent(responseBody []byte) (GeneratedContent, error) {
 		if err := json.Unmarshal(block.Input, &content); err != nil {
 			return GeneratedContent{}, fmt.Errorf("decode tool input: %w", err)
 		}
-		return validateGeneratedContent(content)
+		return validateGeneratedContent(content, prefs)
 	}
 	return GeneratedContent{}, fmt.Errorf("model did not call %s tool (stop_reason=%s)", generationToolName, decoded.StopReason)
 }
 
 // validateGeneratedContent enforces the contract beyond what the JSON schema
 // guarantees: exactly 4 options, an A-D answer, a known difficulty. Invalid
-// questions are dropped; if none survive the output is treated as faulty.
-func validateGeneratedContent(c GeneratedContent) (GeneratedContent, error) {
+// questions/cards are dropped; if the requested counts are not met, the output
+// is treated as faulty so generation can retry.
+func validateGeneratedContent(c GeneratedContent, prefs GenerationPrefs) (GeneratedContent, error) {
+	requested := resolveGenerationPrefs(prefs)
 	validDifficulty := map[string]bool{"easy": true, "medium": true, "hard": true}
 
 	var out GeneratedContent
@@ -306,11 +309,14 @@ func validateGeneratedContent(c GeneratedContent) (GeneratedContent, error) {
 	if len(out.Questions) == 0 {
 		return GeneratedContent{}, fmt.Errorf("no valid questions after validation")
 	}
+	if len(out.Questions) < requested.QuestionCount {
+		return GeneratedContent{}, fmt.Errorf("generated %d valid questions, expected %d", len(out.Questions), requested.QuestionCount)
+	}
 
 	for _, card := range c.InfoCards {
 		title := strings.TrimSpace(card.Title)
 		summary := strings.TrimSpace(card.Summary)
-		if title == "" && summary == "" {
+		if title == "" || summary == "" {
 			continue
 		}
 		keyPoints := make([]string, 0, len(card.KeyPoints))
@@ -319,7 +325,13 @@ func validateGeneratedContent(c GeneratedContent) (GeneratedContent, error) {
 				keyPoints = append(keyPoints, s)
 			}
 		}
+		if len(keyPoints) == 0 {
+			continue
+		}
 		out.InfoCards = append(out.InfoCards, ExamInfoCard{Title: title, Summary: summary, KeyPoints: keyPoints})
+	}
+	if len(out.InfoCards) < requested.InfoCardCount {
+		return GeneratedContent{}, fmt.Errorf("generated %d valid info cards, expected %d", len(out.InfoCards), requested.InfoCardCount)
 	}
 
 	return out, nil
@@ -528,7 +540,8 @@ func generationTool() anthropicTool {
 			"type": "object",
 			"properties": map[string]any{
 				"questions": map[string]any{
-					"type": "array",
+					"type":     "array",
+					"minItems": 1,
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
@@ -554,15 +567,17 @@ func generationTool() anthropicTool {
 					},
 				},
 				"infoCards": map[string]any{
-					"type": "array",
+					"type":     "array",
+					"minItems": 1,
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
 							"title":   stringSchema,
 							"summary": stringSchema,
 							"keyPoints": map[string]any{
-								"type":  "array",
-								"items": stringSchema,
+								"type":     "array",
+								"items":    stringSchema,
+								"minItems": 1,
 							},
 						},
 						"required": []string{"title", "summary", "keyPoints"},

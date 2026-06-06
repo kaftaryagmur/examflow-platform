@@ -39,7 +39,7 @@ func TestClaudeQuestionGeneratorGeneratesStructuredContent(t *testing.T) {
 	defer server.Close()
 
 	gen := newClaudeQuestionGenerator("test-key", "", server.URL)
-	content, err := gen.Generate(context.Background(), GenerationInput{DocumentID: "doc-1", FileName: "week1.pdf", Source: "web"})
+	content, err := gen.Generate(context.Background(), GenerationInput{DocumentID: "doc-1", FileName: "week1.pdf", Source: "web", Prefs: GenerationPrefs{QuestionCount: 1, InfoCardCount: 1}})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -92,6 +92,7 @@ func TestClaudeQuestionGeneratorSendsPdfAsDocumentBlock(t *testing.T) {
 		FileName:    "week1.pdf",
 		ContentType: "application/pdf",
 		FileContent: []byte("%PDF-1.4 some real pdf bytes"),
+		Prefs:       GenerationPrefs{QuestionCount: 1, InfoCardCount: 1},
 	})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -135,6 +136,7 @@ func TestClaudeQuestionGeneratorExtractsDocxText(t *testing.T) {
 		FileName:    "biyoloji.docx",
 		ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		FileContent: docx,
+		Prefs:       GenerationPrefs{QuestionCount: 1, InfoCardCount: 1},
 	})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -167,7 +169,7 @@ func TestClaudeQuestionGeneratorRetriesOnServerError(t *testing.T) {
 	defer server.Close()
 
 	gen := newClaudeQuestionGenerator("test-key", "", server.URL)
-	content, err := gen.Generate(context.Background(), GenerationInput{DocumentID: "doc-retry"})
+	content, err := gen.Generate(context.Background(), GenerationInput{DocumentID: "doc-retry", Prefs: GenerationPrefs{QuestionCount: 1, InfoCardCount: 1}})
 	if err != nil {
 		t.Fatalf("expected success after retry, got %v", err)
 	}
@@ -197,6 +199,41 @@ func TestClaudeQuestionGeneratorDoesNotRetryOnAuthError(t *testing.T) {
 	}
 }
 
+func TestClaudeQuestionGeneratorRetriesOnMissingInfoCards(t *testing.T) {
+	var calls int32
+	incompleteResponse := `{
+		"stop_reason":"tool_use",
+		"model":"claude-opus-4-8",
+		"content":[
+			{"type":"tool_use","name":"submit_exam_content","input":{
+				"questions":[{"question":"Soru?","options":["A","B","C","D"],"correctAnswer":"A","explanation":"Cunku.","difficulty":"medium","topic":"Konu"}],
+				"infoCards":[]
+			}}
+		]
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if atomic.AddInt32(&calls, 1) == 1 {
+			_, _ = w.Write([]byte(incompleteResponse))
+			return
+		}
+		_, _ = w.Write([]byte(validToolResponse))
+	}))
+	defer server.Close()
+
+	gen := newClaudeQuestionGenerator("test-key", "", server.URL)
+	content, err := gen.Generate(context.Background(), GenerationInput{DocumentID: "doc-cards", Prefs: GenerationPrefs{QuestionCount: 1, InfoCardCount: 1}})
+	if err != nil {
+		t.Fatalf("expected success after retry, got %v", err)
+	}
+	if len(content.InfoCards) != 1 {
+		t.Fatalf("expected info card after retry, got %+v", content.InfoCards)
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("expected 2 calls (1 incomplete + 1 retry), got %d", got)
+	}
+}
+
 func TestClaudeQuestionGeneratorRequiresAPIKey(t *testing.T) {
 	gen := newClaudeQuestionGenerator("", "", "")
 	if _, err := gen.Generate(context.Background(), GenerationInput{DocumentID: "doc-1"}); err == nil {
@@ -213,7 +250,7 @@ func TestValidateGeneratedContentDropsInvalidQuestions(t *testing.T) {
 			{Question: "Gecersiz cevap", Options: []string{"A", "B", "C", "D"}, CorrectAnswer: "Z", Difficulty: "easy", Topic: "x"},
 		},
 		InfoCards: []ExamInfoCard{{Title: "Kart", Summary: "Ozet", KeyPoints: []string{"k", ""}}},
-	})
+	}, GenerationPrefs{QuestionCount: 1, InfoCardCount: 1})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -237,7 +274,7 @@ func TestValidateGeneratedContentErrorsWhenNoValidQuestions(t *testing.T) {
 		Questions: []ExamQuestion{
 			{Question: "Eksik", Options: []string{"A", "B"}, CorrectAnswer: "A"},
 		},
-	})
+	}, GenerationPrefs{QuestionCount: 1, InfoCardCount: 1})
 	if err == nil {
 		t.Fatal("expected error when no valid questions remain")
 	}

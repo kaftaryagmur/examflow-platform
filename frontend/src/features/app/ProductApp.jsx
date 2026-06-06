@@ -494,7 +494,22 @@ function AppOverview({
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(320px,0.95fr)_minmax(420px,1.05fr)]">
-        <DashboardPublishPanel busy={busy} onSubmit={onSubmitDocument} selectedFile={selectedFile} setSelectedFile={setSelectedFile} setSource={setSource} source={source} />
+        <DashboardPublishPanel
+          busy={busy}
+          difficulty={difficulty}
+          focus={focus}
+          infoCardCount={infoCardCount}
+          onSubmit={onSubmitDocument}
+          questionCount={questionCount}
+          selectedFile={selectedFile}
+          setDifficulty={setDifficulty}
+          setFocus={setFocus}
+          setInfoCardCount={setInfoCardCount}
+          setQuestionCount={setQuestionCount}
+          setSelectedFile={setSelectedFile}
+          setSource={setSource}
+          source={source}
+        />
         <DashboardResultPanel lastProcess={lastProcess} latestDocument={latestDocument} latestExam={latestExam} notice={processNotice} />
       </div>
 
@@ -506,7 +521,22 @@ function AppOverview({
   );
 }
 
-function DashboardPublishPanel({ busy, onSubmit, selectedFile, setSelectedFile, setSource, source }) {
+function DashboardPublishPanel({
+  busy,
+  difficulty,
+  focus,
+  infoCardCount,
+  onSubmit,
+  questionCount,
+  selectedFile,
+  setDifficulty,
+  setFocus,
+  setInfoCardCount,
+  setQuestionCount,
+  setSelectedFile,
+  setSource,
+  source,
+}) {
   const isPublishing = busy === "publish";
 
   return (

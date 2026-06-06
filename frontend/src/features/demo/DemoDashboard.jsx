@@ -70,6 +70,13 @@ export function DemoDashboard() {
       const [healthBody, readyBody] = await Promise.all([request("/health"), request("/ready")]);
       setHealth(healthBody);
       setReady(readyBody);
+      if (session?.token) {
+        try {
+          await loadArchive(session.token);
+        } catch (archiveErr) {
+          setError(archiveErr.message);
+        }
+      }
     } catch (err) {
       setHealth({ status: "error", service: "api-service", mode: "unreachable" });
       setReady({ status: "error", databaseStatus: "unknown" });
@@ -157,8 +164,8 @@ export function DemoDashboard() {
 
   async function waitForExamRecord(token, documentId) {
     setStep("processing", "running");
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      await delay(attempt === 0 ? 900 : 1500);
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await delay(attempt === 0 ? 900 : 2000);
       const archive = await loadArchive(token);
       const exam = archive.exams.find((record) => record.documentId === documentId);
       if (!exam) continue;
@@ -169,11 +176,13 @@ export function DemoDashboard() {
       } else {
         setStep("processing", "ok");
         setStep("validated", "ok");
+        setStep("failed", "waiting");
       }
+      setNotice("");
       return exam;
     }
 
-    setNotice("Sınav kaydı henüz oluşmadı. Event akışı arka planda devam ediyor olabilir.");
+    setNotice("Sınav kaydı henüz oluşmadı. AI üretimi arka planda devam ediyor olabilir; kayıtlar otomatik yenilenmeye devam etmezse tekrar kontrol et.");
     return null;
   }
 

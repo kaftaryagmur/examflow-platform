@@ -11,7 +11,7 @@ Sistem; Go servisleri, Docker image'lari, Google Pub/Sub, MongoDB, Artifact Regi
 - `validation-service`: Validation event akisini dinler ve dogrulama sonucunu yayinlar.
 - `exam-service`: Exam lifecycle tarafini temsil eder ve ilgili eventleri tuketir.
 - `mongodb`: Kullanici, document, exam ve islem gecmisi verileri icin kalici veri katmani olarak konumlandirilir.
-- `demo-ui`: Lokal demo icin hafif HTML/CSS/JavaScript arayuzu.
+- `frontend`: Public demo ve authenticated app ekranlarini iceren React/Vite frontend uygulamasi.
 
 Temel uygulama akisi:
 
@@ -44,7 +44,7 @@ k8s/
   overlays/
     dev/
     prod/
-demo-ui/
+frontend/
 scripts/
 docs/
 Jenkinsfile
@@ -437,7 +437,7 @@ $MongoSmokeScript = "const smokeDb = db.getSiblingDB('$MongoDatabase'); const re
 kubectl exec -n $Namespace deployment/mongodb -- mongosh -u $MongoUser -p $MongoPassword --authenticationDatabase admin --quiet --eval $MongoSmokeScript
 ```
 
-## Demo UI
+## Frontend
 
 API servisine lokal port-forward ac:
 
@@ -445,10 +445,10 @@ API servisine lokal port-forward ac:
 kubectl port-forward service/api-service 8080:80 -n examflow
 ```
 
-Ayrica bir terminalde React/Vite demo UI'i baslat:
+Ayrica bir terminalde React/Vite frontend uygulamasini baslat:
 
 ```powershell
-cd demo-ui
+cd frontend
 npm install
 npm run dev
 ```
@@ -459,7 +459,7 @@ Tarayicida ac:
 http://127.0.0.1:5173/demo/
 ```
 
-Demo UI ile:
+Frontend ile:
 
 - `/health` kontrolu yapilabilir.
 - `/ready` kontrolu yapilabilir.
@@ -470,12 +470,12 @@ Demo UI ile:
 
 Not: `/publish` protected endpoint oldugu icin once register/login akisi ile JWT alinmali ve istek `Authorization: Bearer <token>` header'i ile gonderilmelidir.
 
-Demo UI container image'i:
+Frontend container image'i:
 
 ```powershell
-cd demo-ui
-docker build -t examflow-demo-ui:local .
-docker run --rm -p 5500:8080 examflow-demo-ui:local
+cd frontend
+docker build -t examflow-frontend:local .
+docker run --rm -p 5500:8080 examflow-frontend:local
 ```
 
 Container demo adresi:
@@ -484,7 +484,7 @@ Container demo adresi:
 http://127.0.0.1:5500/demo/
 ```
 
-Kubernetes uzerinde `demo-ui` Deployment ve LoadBalancer Service manifestleri `k8s/base` altindadir. Public endpoint icin:
+Kubernetes uzerinde frontend uygulamasi su an `demo-ui` Deployment ve LoadBalancer Service manifestleri ile expose edilir. Public endpoint icin:
 
 ```powershell
 kubectl apply -k k8s/overlays/prod

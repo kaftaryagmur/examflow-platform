@@ -330,6 +330,14 @@ export function ProductApp() {
                 setSelectedFile={setSelectedFile}
                 setSource={setSource}
                 source={source}
+                questionCount={questionCount}
+                setQuestionCount={setQuestionCount}
+                difficulty={difficulty}
+                setDifficulty={setDifficulty}
+                infoCardCount={infoCardCount}
+                setInfoCardCount={setInfoCardCount}
+                focus={focus}
+                setFocus={setFocus}
               />
             }
           />
@@ -449,6 +457,14 @@ function AppOverview({
   setSelectedFile,
   setSource,
   source,
+  questionCount,
+  setQuestionCount,
+  difficulty,
+  setDifficulty,
+  infoCardCount,
+  setInfoCardCount,
+  focus,
+  setFocus,
 }) {
   const recentDocuments = sortRecordsByDate(documents);
   const recentExams = sortRecordsByDate(exams);

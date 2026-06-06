@@ -77,6 +77,9 @@ fi
 echo "Fetching cluster credentials"
 gcloud container clusters get-credentials "${CLUSTER_NAME}" "${CLUSTER_LOCATION_FLAG}"="${CLUSTER_LOCATION}" --project="${PROJECT_ID}"
 
+echo "Remembering existing ANTHROPIC_API_KEY from Kubernetes secret (if present)"
+EXISTING_ANTHROPIC_API_KEY="$(kubectl get secret examflow-secret -n "${NAMESPACE}" -o jsonpath='{.data.ANTHROPIC_API_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+
 echo "Applying Kubernetes manifests: ${K8S_OVERLAY}"
 kubectl apply -k "${K8S_OVERLAY}"
 
@@ -87,6 +90,11 @@ if ANTHROPIC_API_KEY="$(gcloud secrets versions access latest --secret="${ANTHRO
     -p "{\"stringData\":{\"ANTHROPIC_API_KEY\":\"${ANTHROPIC_API_KEY}\"}}"
   kubectl rollout restart deployment/exam-service -n "${NAMESPACE}"
   echo "ANTHROPIC_API_KEY synced from Secret Manager into examflow-secret."
+elif [ -n "${EXISTING_ANTHROPIC_API_KEY}" ]; then
+  kubectl patch secret examflow-secret -n "${NAMESPACE}" --type merge \
+    -p "{\"stringData\":{\"ANTHROPIC_API_KEY\":\"${EXISTING_ANTHROPIC_API_KEY}\"}}"
+  kubectl rollout restart deployment/exam-service -n "${NAMESPACE}"
+  echo "Secret Manager secret '${ANTHROPIC_SECRET_NAME}' not accessible; reused existing Kubernetes ANTHROPIC_API_KEY."
 else
   echo "Secret Manager secret '${ANTHROPIC_SECRET_NAME}' not accessible; exam-service runs with AI generation disabled."
 fi

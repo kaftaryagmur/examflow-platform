@@ -92,6 +92,13 @@ if (-not (Test-GcloudResource @("container", "clusters", "describe", $ClusterNam
 Write-Host "Fetching cluster credentials"
 & $Gcloud container clusters get-credentials $ClusterName "$ClusterLocationFlag=$ClusterLocation" --project=$ProjectId
 
+Write-Host "Remembering existing ANTHROPIC_API_KEY from Kubernetes secret (if present)"
+$ExistingAnthropicApiKeyEncoded = kubectl get secret examflow-secret -n $Namespace -o jsonpath="{.data.ANTHROPIC_API_KEY}" 2>$null
+$ExistingAnthropicApiKey = ""
+if (-not [string]::IsNullOrWhiteSpace($ExistingAnthropicApiKeyEncoded)) {
+    $ExistingAnthropicApiKey = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($ExistingAnthropicApiKeyEncoded))
+}
+
 Write-Host "Applying Kubernetes manifests: $K8sOverlay"
 kubectl apply -k $K8sOverlay
 
@@ -103,6 +110,10 @@ if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($AnthropicApiKey)
     kubectl patch secret examflow-secret -n $Namespace --type merge -p "{`"stringData`":{`"ANTHROPIC_API_KEY`":`"$AnthropicApiKey`"}}"
     kubectl rollout restart deployment/exam-service -n $Namespace
     Write-Host "ANTHROPIC_API_KEY synced from Secret Manager into examflow-secret."
+} elseif (-not [string]::IsNullOrWhiteSpace($ExistingAnthropicApiKey)) {
+    kubectl patch secret examflow-secret -n $Namespace --type merge -p "{`"stringData`":{`"ANTHROPIC_API_KEY`":`"$ExistingAnthropicApiKey`"}}"
+    kubectl rollout restart deployment/exam-service -n $Namespace
+    Write-Host "Secret Manager secret '$AnthropicSecretName' not accessible; reused existing Kubernetes ANTHROPIC_API_KEY."
 } else {
     Write-Host "Secret Manager secret '$AnthropicSecretName' not accessible; exam-service runs with AI generation disabled."
 }

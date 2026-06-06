@@ -38,6 +38,7 @@ type GenerationInput struct {
 	Source      string
 	ContentType string
 	FileContent []byte
+	Prefs       GenerationPrefs
 }
 
 // questionGenerator turns a document into structured exam content.
@@ -357,18 +358,20 @@ yalnızca dosya adı/metadata'dan konuyu çıkarırsın. Çıktıyı yalnızca
 submit_exam_content aracını çağırarak verirsin; serbest metin yazmazsın.
 
 Kurallar:
-- 4 ile 6 arası çoktan seçmeli soru üret.
+- İstenen sayıda çoktan seçmeli soru üret (sayı ve zorluk istek mesajında belirtilir).
 - Her sorunun tam olarak 4 seçeneği olsun.
 - correctAnswer alanı doğru seçeneğin harfi olsun: A, B, C veya D.
 - difficulty yalnızca easy, medium veya hard değerlerinden biri olsun.
-- topic kısa bir konu etiketi olsun.
-- 2 ile 3 arası bilgi kartı üret; her kartta başlık, tek cümlelik özet ve 2-4 anahtar nokta olsun.
+- topic kısa bir konu etiketi olsun; explanation alanı bos birakilmasin.
+- İstenen sayıda bilgi kartı üret; her kartta başlık, tek cümlelik özet ve 2-4 anahtar nokta olsun.
 - Sorular ve kartlar dokümanın gerçek içeriğine dayansın, eğitici ve kendi içinde tutarlı olsun.`
 
 func buildContentInstruction(input GenerationInput) string {
 	return fmt.Sprintf(`Sağlanan dokümanın içeriğine dayanarak sınav içeriği üret.
 documentId: %s
-dosya adı: %s`, strings.TrimSpace(input.DocumentID), fileNameOrUnknown(input.FileName))
+dosya adı: %s
+
+%s`, strings.TrimSpace(input.DocumentID), fileNameOrUnknown(input.FileName), prefsInstruction(input.Prefs))
 }
 
 func buildMetadataPrompt(input GenerationInput) string {
@@ -376,9 +379,35 @@ func buildMetadataPrompt(input GenerationInput) string {
 documentId: %s
 dosya adı: %s
 kaynak: %s
+Dokümanın metni elimizde yok; konuyu dosya adından çıkar.
 
-Dokümanın metni elimizde yok; konuyu dosya adından çıkar.`,
-		strings.TrimSpace(input.DocumentID), fileNameOrUnknown(input.FileName), sourceOrUnknown(input.Source))
+%s`,
+		strings.TrimSpace(input.DocumentID), fileNameOrUnknown(input.FileName), sourceOrUnknown(input.Source), prefsInstruction(input.Prefs))
+}
+
+func prefsInstruction(prefs GenerationPrefs) string {
+	prefs = resolveGenerationPrefs(prefs)
+	var b strings.Builder
+	fmt.Fprintf(&b, "Tam olarak %d adet çoktan seçmeli soru üret.\n", prefs.QuestionCount)
+	b.WriteString(difficultyInstruction(prefs.Difficulty))
+	fmt.Fprintf(&b, "\n%d adet bilgi kartı üret.", prefs.InfoCardCount)
+	if prefs.Focus != "" {
+		fmt.Fprintf(&b, "\nÖzellikle şu konuya/talimata odaklan: %s", prefs.Focus)
+	}
+	return b.String()
+}
+
+func difficultyInstruction(difficulty string) string {
+	switch difficulty {
+	case difficultyEasy:
+		return "Tüm sorular kolay (easy) zorlukta olsun."
+	case difficultyMedium:
+		return "Tüm sorular orta (medium) zorlukta olsun."
+	case difficultyHard:
+		return "Tüm sorular zor (hard) zorlukta olsun."
+	default:
+		return "Soruları kolay, orta ve zor arasında dengeli dağıt (karışık)."
+	}
 }
 
 func fileNameOrUnknown(name string) string {

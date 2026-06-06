@@ -316,7 +316,14 @@ func TestHandleValidatedMessageAttachesGeneratedContent(t *testing.T) {
 	}}
 	fileID := bson.NewObjectID()
 	exams = store
-	documents = stubDocumentReader{doc: Document{DocumentID: "doc-77", FileID: fileID, FileName: "week1.pdf", ContentType: "application/pdf", Source: "web"}}
+	documents = stubDocumentReader{doc: Document{
+		DocumentID:      "doc-77",
+		FileID:          fileID,
+		FileName:        "week1.pdf",
+		ContentType:     "application/pdf",
+		Source:          "web",
+		GenerationPrefs: GenerationPrefs{QuestionCount: 1, Difficulty: "easy", InfoCardCount: 1},
+	}}
 	files = stubFileReader{data: []byte("%PDF-1.4 content")}
 	generator = gen
 
@@ -353,6 +360,15 @@ func TestHandleValidatedMessageAttachesGeneratedContent(t *testing.T) {
 	}
 	if gen.lastInput.ContentType != "application/pdf" {
 		t.Fatalf("expected content type passed to generator, got %q", gen.lastInput.ContentType)
+	}
+	if gen.lastInput.Prefs.QuestionCount != 1 || gen.lastInput.Prefs.Difficulty != "easy" {
+		t.Fatalf("expected generation prefs passed to generator, got %+v", gen.lastInput.Prefs)
+	}
+	if saved.QualityStatus != qualityStatusPassed {
+		t.Fatalf("expected quality passed, got %q (issues: %v)", saved.QualityStatus, saved.QualityIssues)
+	}
+	if saved.GenerationPrefs.QuestionCount != 1 {
+		t.Fatalf("expected resolved prefs persisted on exam, got %+v", saved.GenerationPrefs)
 	}
 }
 

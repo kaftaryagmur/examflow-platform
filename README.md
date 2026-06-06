@@ -134,6 +134,8 @@ SCRUM-90 kapsaminda exam-service, `validated` durumuna gecen examlar icin Anthro
 
 SCRUM-91 kapsaminda uretim, dokumanin gercek icerigine dayandirilir: exam-service `documents.fileId` uzerinden GridFS'ten dosya binary'sini indirir, PDF'i Claude'a native document content block (base64) olarak gonderir, DOCX'i standart kutuphane ile metne cevirir; icerik alinamazsa dosya adi metadata fallback'i kullanilir. Anthropic cagrisi gecici hatalarda (429/5xx, ag) ve hatali/eksik AI ciktilarinda kisa backoff ile yeniden denenir (en fazla 3 deneme; 400/401/403 gibi kalici hatalarda denenmez). Donen JSON, sema disinda ayrica dogrulanir (tam 4 secenek, A-D cevap, gecerli difficulty); gecersiz sorular elenir, hicbir gecerli soru kalmazsa cikti hatali sayilip retry/fallback devreye girer.
 
+SCRUM-92 kapsaminda son kullanici upload sirasinda uretim tercihlerini girer: soru sayisi, zorluk (`easy`/`medium`/`hard`/`mixed`), bilgi karti sayisi ve serbest odak/talimat. Bu tercihler `/publish` form alanlari olarak alinip clamp/normalize edilerek `documents.generationPrefs` icine yazilir (worker/validation eventlerine dokunulmaz). exam-service tercihleri prompt'a uygular ve uretilen icerigi tercihlere gore kalite kontrolunden gecirir: minimum soru sayisi, her soruda secenek/dogru cevap/aciklama, zorluk ve konu etiketi. Sonuc `exams.qualityStatus` (`passed`/`failed`) ve `exams.qualityIssues` alanlarina yazilir; boylece gecersiz ciktilar validation sonucuna yansir. Frontend upload formu bu alanlari sunar, exam detayindaki kalite paneli sonucu ve sorunlari gosterir.
+
 ## Lokal Testler
 
 Her servis kendi Go modulu olarak test edilebilir:

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   ClipboardList,
@@ -6,13 +7,16 @@ import {
   ExternalLink,
   FileText,
   LockKeyhole,
+  Loader2,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
 import { Badge } from "../../../components/status";
+import { defaultBaseUrl } from "../../../config/appConfig";
 import { displayStatus, parseRecordDate } from "../../../utils/format";
+import { readStoredSession } from "../../../utils/session";
 import { DocumentMeta } from "../components/DocumentMeta";
 
 export function DocumentDetailPage({ documents, exams = [] }) {
@@ -90,6 +94,7 @@ function DocumentMetadata({ document, fileInfo }) {
 
 function DocumentViewer({ document, fileInfo }) {
   const viewerTitle = fileInfo.extension === "pdf" ? "PDF görüntüleyici" : fileInfo.extension === "docx" ? "DOCX görüntüleme" : "Dosya görüntüleme";
+  const secureFile = useSecureDocumentFile(fileInfo);
 
   return (
     <section className="panel glass-grid p-5">
@@ -101,11 +106,47 @@ function DocumentViewer({ document, fileInfo }) {
             PDF içerikleri uygulama teması içinde, sandbox edilmiş viewer alanında gösterilir. DOCX için tarayıcı önizlemesi güvenilir olmadığından güvenli dosya bağlantısı veya backend dönüşümü beklenir.
           </p>
         </div>
-        <ViewerActions fileInfo={fileInfo} />
+        <ViewerActions fileInfo={fileInfo} secureFile={secureFile} />
       </div>
 
-      {fileInfo.url ? <ResolvedViewer fileInfo={fileInfo} title={document.fileName || document.title || "Doküman"} /> : <MissingFileState fileInfo={fileInfo} />}
+      <SecureViewerBody document={document} fileInfo={fileInfo} secureFile={secureFile} />
     </section>
+  );
+}
+
+function SecureViewerBody({ document, fileInfo, secureFile }) {
+  if (!fileInfo.url) {
+    return <MissingFileState fileInfo={fileInfo} />;
+  }
+
+  if (secureFile.status === "loading" || secureFile.status === "idle") {
+    return <FileLoadingState />;
+  }
+
+  if (secureFile.status === "error") {
+    return <FileErrorState error={secureFile.error} />;
+  }
+
+  return <ResolvedViewer fileInfo={{ ...fileInfo, url: secureFile.url }} title={document.fileName || document.title || "Doküman"} />;
+}
+
+function FileLoadingState() {
+  return (
+    <div className="flex min-h-[420px] flex-col items-center justify-center rounded-lg border border-dashed border-space-line bg-black/25 p-8 text-center">
+      <Loader2 className="h-10 w-10 animate-spin text-neon-cyan" />
+      <p className="mt-4 text-base font-bold text-ink">Güvenli dosya hazırlanıyor.</p>
+      <p className="mt-2 max-w-xl text-sm leading-6 text-muted">Viewer dosyayı JWT ile backend endpointinden alıyor.</p>
+    </div>
+  );
+}
+
+function FileErrorState({ error }) {
+  return (
+    <div className="flex min-h-[420px] flex-col items-center justify-center rounded-lg border border-dashed border-neon-amber/40 bg-neon-amber/10 p-8 text-center">
+      <LockKeyhole className="h-12 w-12 text-neon-amber" />
+      <p className="mt-4 text-base font-bold text-ink">Dosya güvenli endpointten alınamadı.</p>
+      <p className="mt-2 max-w-xl text-sm leading-6 text-muted">{error || "Oturum veya dosya erişim kontrolü başarısız oldu."}</p>
+    </div>
   );
 }
 
@@ -165,7 +206,7 @@ function MissingFileState({ fileInfo }) {
   );
 }
 
-function ViewerActions({ fileInfo }) {
+function ViewerActions({ fileInfo, secureFile }) {
   if (!fileInfo.url) {
     return (
       <span className="inline-flex items-center gap-2 rounded-lg border border-neon-amber/40 bg-neon-amber/10 px-3 py-2 text-xs font-black text-neon-amber">
@@ -175,13 +216,22 @@ function ViewerActions({ fileInfo }) {
     );
   }
 
+  if (secureFile.status !== "ready") {
+    return (
+      <span className="inline-flex items-center gap-2 rounded-lg border border-neon-cyan/40 bg-neon-cyan/10 px-3 py-2 text-xs font-black text-neon-cyan">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Dosya hazırlanıyor
+      </span>
+    );
+  }
+
   return (
     <div className="flex flex-wrap gap-2">
-      <a className="btn btn-secondary" href={fileInfo.url} rel="noreferrer" target="_blank">
+      <a className="btn btn-secondary" href={secureFile.url} rel="noreferrer" target="_blank">
         <ExternalLink className="h-4 w-4" />
         Yeni sekmede aç
       </a>
-      <a className="btn btn-secondary" download href={fileInfo.url}>
+      <a className="btn btn-secondary" download={fileInfo.fileName || true} href={secureFile.url}>
         <Download className="h-4 w-4" />
         İndir
       </a>
@@ -303,10 +353,79 @@ function ReadinessStep({ text, title, tone }) {
 function getFileInfo(document) {
   const fileName = document.fileName || document.title || "";
   const extension = String(fileName).split(".").pop()?.toLowerCase() || "";
-  const url = document.fileUrl || document.downloadUrl || document.signedUrl || document.publicUrl || document.storageUrl || document.url || "";
+  const documentId = document.documentId || document.id || "";
+  const secureUrl = document.fileUrl || (documentId ? `/documents/${encodeURIComponent(documentId)}/file` : "");
+  const url = secureUrl || document.downloadUrl || document.signedUrl || document.publicUrl || document.storageUrl || document.url || "";
 
   return {
     extension,
+    fileName,
     url,
   };
+}
+
+function useSecureDocumentFile(fileInfo) {
+  const [state, setState] = useState({ error: "", status: fileInfo.url ? "loading" : "idle", url: "" });
+
+  useEffect(() => {
+    if (!fileInfo.url) {
+      setState({ error: "", status: "idle", url: "" });
+      return undefined;
+    }
+
+    const session = readStoredSession();
+    if (!session?.token) {
+      setState({ error: "Oturum tokeni bulunamadı. Dosyayı görüntülemek için yeniden giriş yap.", status: "error", url: "" });
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    let objectUrl = "";
+    let isActive = true;
+
+    async function loadFile() {
+      setState({ error: "", status: "loading", url: "" });
+
+      try {
+        const response = await fetch(resolveDocumentFileUrl(fileInfo.url), {
+          headers: {
+            Authorization: `Bearer ${session.token}`,
+          },
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Dosya isteği başarısız oldu (${response.status}).`);
+        }
+
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+
+        if (isActive) {
+          setState({ error: "", status: "ready", url: objectUrl });
+        }
+      } catch (error) {
+        if (error.name === "AbortError" || !isActive) return;
+        setState({ error: error.message || "Dosya alınamadı.", status: "error", url: "" });
+      }
+    }
+
+    loadFile();
+
+    return () => {
+      isActive = false;
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [fileInfo.url]);
+
+  return state;
+}
+
+function resolveDocumentFileUrl(fileUrl) {
+  if (!fileUrl) return "";
+  if (/^https?:\/\//i.test(fileUrl) || fileUrl.startsWith("blob:")) return fileUrl;
+  if (fileUrl.startsWith(`${defaultBaseUrl}/`)) return fileUrl;
+  if (fileUrl.startsWith("/")) return `${defaultBaseUrl}${fileUrl}`;
+  return `${defaultBaseUrl}/${fileUrl}`;
 }

@@ -126,6 +126,8 @@ SCRUM-34 kapsaminda `/publish`, event yayinlamadan once MongoDB `documents` coll
 
 SCRUM-89 kapsaminda `/publish`, JSON body yerine `multipart/form-data` kabul eder. Istek `file` alaninda gercek `.pdf` veya `.docx` dosyasini, `source` alaninda kaynak bilgisini ve opsiyonel `documentId` alanini birlikte tasir. API service dosya icerigini okur, uzanti/size/content-type kontrolu yapar ve MongoDB `documents` kaydina dosya metadata bilgisini yazar.
 
+SCRUM-88 kapsaminda API service, yuklenen PDF/DOCX binary icerigini MongoDB GridFS icinde saklar. `documents` kaydi GridFS referansi icin `fileId`, storage tipi icin `storageBackend` ve frontend viewer icin JWT korumali `fileUrl` alanlarini tasir. Dosya icerigi `GET /documents/{documentId}/file` endpoint'i ile sadece ilgili kullaniciya sunulur.
+
 SCRUM-40 kapsaminda API service, MongoDB uzerinden kullaniciya ait kalici `documents` ve `exams` kayitlarini okuyabilen protected endpointler sunar. Bu sayede document create/read ve exam create/read akislarinin veritabani uzerinden dogrulanmasi mumkun hale gelir.
 
 ## Lokal Testler
@@ -210,6 +212,14 @@ Kullaniciya ait document kayitlarini listele:
 ```powershell
 curl.exe http://127.0.0.1:8080/documents `
   -H "Authorization: Bearer $Token"
+```
+
+Kullaniciya ait document dosyasini inline/binary olarak al:
+
+```powershell
+curl.exe http://127.0.0.1:8080/documents/doc-42/file `
+  -H "Authorization: Bearer $Token" `
+  -o week1.pdf
 ```
 
 Kullaniciya ait exam kayitlarini listele:
@@ -492,6 +502,7 @@ Frontend ile:
 - demo kullanici icin register/login akisi olusturulabilir.
 - `/publish` ile gercek `.pdf` veya `.docx` dosyasi multipart olarak gonderilebilir.
 - `/documents` ve `/exams` kayitlari gorulebilir.
+- document detayinda `fileUrl` uzerinden JWT korumali dosya viewer/indirme akisi kullanilabilir.
 - received, processing, validated, published ve failed state'leri takip edilebilir.
 
 Not: `/publish` protected endpoint oldugu icin once register/login akisi ile JWT alinmali ve istek `Authorization: Bearer <token>` header'i ile gonderilmelidir. Frontend, `Content-Type` header'ini elle set etmez; browser `FormData` icin multipart boundary bilgisini otomatik uretir.

@@ -4,13 +4,16 @@ import {
   BookOpen,
   Brain,
   CheckCircle2,
+  Circle,
   ClipboardList,
   FileText,
   Hash,
   Layers,
   ListChecks,
   Sparkles,
+  XCircle,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { Badge } from "../../../components/status";
@@ -84,7 +87,12 @@ const PREVIEW_INFO_CARDS = [
 export function ExamDetailPage({ exams }) {
   const { examKey } = useParams();
   const decodedExamKey = decodeURIComponent(examKey || "");
+  const [selectedAnswers, setSelectedAnswers] = useState({});
   const exam = exams.find((item) => item.id === decodedExamKey || item.examId === decodedExamKey || item.documentId === decodedExamKey);
+
+  useEffect(() => {
+    setSelectedAnswers({});
+  }, [decodedExamKey]);
 
   if (!exam) {
     return (
@@ -162,14 +170,20 @@ export function ExamDetailPage({ exams }) {
 
             <div className="grid gap-4">
               {questionCards.map((question, index) => (
-                <QuestionCard key={`${normalizeQuestion(question).question}-${index}`} index={index} question={question} />
+                <QuestionCard
+                  key={`${normalizeQuestion(question).question}-${index}`}
+                  index={index}
+                  onSelect={(answer) => setSelectedAnswers((current) => ({ ...current, [index]: answer }))}
+                  question={question}
+                  selectedAnswer={selectedAnswers[index] || ""}
+                />
               ))}
             </div>
           </section>
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.75fr)]">
             <InfoCardsPanel cards={infoCards} hasGeneratedInfoCards={hasGeneratedInfoCards} />
-            <AnswerKeyPanel questions={questionCards} />
+            <AnswerKeyPanel questions={questionCards} selectedAnswers={selectedAnswers} />
           </div>
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.75fr)]">
@@ -227,8 +241,11 @@ function GenerationReadiness({ hasGeneratedInfoCards, hasGeneratedQuestions, inf
   );
 }
 
-function QuestionCard({ index, question }) {
+function QuestionCard({ index, onSelect, question, selectedAnswer }) {
   const normalized = normalizeQuestion(question);
+  const correctAnswer = resolveCorrectAnswerLetter(normalized);
+  const hasSelection = Boolean(selectedAnswer);
+  const isSelectionCorrect = hasSelection && selectedAnswer === correctAnswer;
 
   return (
     <article className="rounded-lg border border-space-line bg-black/25 p-4">
@@ -250,23 +267,63 @@ function QuestionCard({ index, question }) {
       <div className="mt-4 grid gap-2">
         {normalized.options.map((option, optionIndex) => {
           const optionLetter = String.fromCharCode(65 + optionIndex);
-          const isCorrect = normalized.correctAnswer === optionLetter || normalized.correctAnswer === option || normalized.correctAnswer === optionIndex;
+          const isSelected = selectedAnswer === optionLetter;
+          const isCorrect = correctAnswer === optionLetter;
+          const stateClass = !hasSelection
+            ? "border-space-line bg-black/20 hover:border-neon-cyan/45 hover:bg-neon-cyan/10"
+            : isSelected && isCorrect
+              ? "border-neon-green/45 bg-neon-green/10"
+              : isSelected
+                ? "border-danger/45 bg-danger/10"
+                : isCorrect
+                  ? "border-neon-green/45 bg-neon-green/10"
+                  : "border-space-line bg-black/20 opacity-75";
+          const letterClass = !hasSelection
+            ? "bg-white/5 text-muted"
+            : isSelected && isCorrect
+              ? "bg-neon-green/20 text-neon-green"
+              : isSelected
+                ? "bg-danger/20 text-danger"
+                : isCorrect
+                  ? "bg-neon-green/20 text-neon-green"
+                  : "bg-white/5 text-muted";
           return (
-            <div className={`flex gap-3 rounded-lg border p-3 ${isCorrect ? "border-neon-green/40 bg-neon-green/10" : "border-space-line bg-black/20"}`} key={`${optionLetter}-${option}`}>
-              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-black ${isCorrect ? "bg-neon-green/20 text-neon-green" : "bg-white/5 text-muted"}`}>{optionLetter}</span>
+            <button
+              aria-pressed={isSelected}
+              className={`flex w-full gap-3 rounded-lg border p-3 text-left transition ${stateClass}`}
+              key={`${optionLetter}-${option}`}
+              onClick={() => onSelect(optionLetter)}
+              type="button"
+            >
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-black ${letterClass}`}>{optionLetter}</span>
               <p className="min-w-0 break-words text-sm leading-6 text-ink">{option}</p>
-            </div>
+              {hasSelection && isSelected ? (
+                isCorrect ? <CheckCircle2 className="ml-auto h-5 w-5 shrink-0 text-neon-green" /> : <XCircle className="ml-auto h-5 w-5 shrink-0 text-danger" />
+              ) : hasSelection && isCorrect ? (
+                <CheckCircle2 className="ml-auto h-5 w-5 shrink-0 text-neon-green" />
+              ) : null}
+            </button>
           );
         })}
       </div>
 
-      <div className="mt-4 rounded-lg border border-neon-cyan/25 bg-neon-cyan/10 p-3">
-        <p className="flex items-center gap-2 text-xs font-black uppercase text-neon-cyan">
-          <BadgeCheck className="h-4 w-4" />
-          Açıklama
-        </p>
-        <p className="mt-2 break-words text-sm leading-6 text-muted">{normalized.explanation}</p>
-      </div>
+      {hasSelection ? (
+        <div className={`mt-4 rounded-lg border p-3 ${isSelectionCorrect ? "border-neon-green/30 bg-neon-green/10" : "border-neon-amber/30 bg-neon-amber/10"}`}>
+          <p className={`flex items-center gap-2 text-xs font-black uppercase ${isSelectionCorrect ? "text-neon-green" : "text-neon-amber"}`}>
+            {isSelectionCorrect ? <CheckCircle2 className="h-4 w-4" /> : <BadgeCheck className="h-4 w-4" />}
+            {isSelectionCorrect ? "Doğru cevap" : `Seçimin ${selectedAnswer}; doğru cevap ${correctAnswer}`}
+          </p>
+          <p className="mt-2 break-words text-sm leading-6 text-muted">{normalized.explanation}</p>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-lg border border-space-line bg-black/20 p-3">
+          <p className="flex items-center gap-2 text-xs font-black uppercase text-muted">
+            <Circle className="h-4 w-4" />
+            Cevabını işaretle
+          </p>
+          <p className="mt-2 break-words text-sm leading-6 text-muted">Bir seçenek seçtiğinde doğru cevap ve açıklama burada açılacak.</p>
+        </div>
+      )}
     </article>
   );
 }
@@ -313,18 +370,33 @@ function InfoCardsPanel({ cards, hasGeneratedInfoCards }) {
   );
 }
 
-function AnswerKeyPanel({ questions }) {
+function AnswerKeyPanel({ questions, selectedAnswers }) {
+  const answeredCount = Object.keys(selectedAnswers).filter((key) => selectedAnswers[key]).length;
+  const correctCount = questions.reduce((count, question, index) => {
+    const normalized = normalizeQuestion(question);
+    return selectedAnswers[index] === resolveCorrectAnswerLetter(normalized) ? count + 1 : count;
+  }, 0);
+
   return (
     <section className="panel p-5">
       <p className="label">Değerlendirme</p>
-      <h3 className="section-title">Cevap anahtarı</h3>
+      <h3 className="section-title">Yanıt durumu</h3>
+      <p className="mt-2 text-sm leading-6 text-muted">
+        {answeredCount}/{questions.length} soru işaretlendi. Doğru sayısı: {correctCount}.
+      </p>
       <div className="mt-5 grid gap-2">
         {questions.map((question, index) => {
           const normalized = normalizeQuestion(question);
+          const selected = selectedAnswers[index] || "";
+          const correct = resolveCorrectAnswerLetter(normalized);
+          const answered = Boolean(selected);
+          const isCorrect = answered && selected === correct;
           return (
             <div className="flex items-center justify-between gap-3 rounded-lg border border-space-line bg-black/20 p-3" key={`${normalized.question}-${index}`}>
               <span className="text-sm font-bold text-muted">Soru {index + 1}</span>
-              <span className="rounded-lg border border-neon-green/40 bg-neon-green/10 px-3 py-1 text-sm font-black text-neon-green">{normalized.correctAnswer || "-"}</span>
+              <span className={`rounded-lg border px-3 py-1 text-sm font-black ${!answered ? "border-space-line bg-black/20 text-muted" : isCorrect ? "border-neon-green/40 bg-neon-green/10 text-neon-green" : "border-danger/40 bg-danger/10 text-danger"}`}>
+                {answered ? `${selected} / ${correct}` : "Bekliyor"}
+              </span>
             </div>
           );
         })}
@@ -462,6 +534,26 @@ function normalizeQuestion(question) {
     question: question.question || question.prompt || question.text || "Soru metni backend çıktısında bekleniyor.",
     topic: question.topic || question.tag || question.learningOutcome || "Konu etiketi",
   };
+}
+
+function resolveCorrectAnswerLetter(question) {
+  const raw = question.correctAnswer;
+  if (typeof raw === "number") {
+    return String.fromCharCode(65 + raw);
+  }
+
+  const rawText = String(raw || "").trim();
+  const upper = rawText.toUpperCase();
+  if (["A", "B", "C", "D"].includes(upper)) {
+    return upper;
+  }
+
+  const optionIndex = question.options.findIndex((option) => String(option).trim().toLowerCase() === rawText.toLowerCase());
+  if (optionIndex >= 0) {
+    return String.fromCharCode(65 + optionIndex);
+  }
+
+  return upper || "-";
 }
 
 function displayDifficulty(difficulty) {

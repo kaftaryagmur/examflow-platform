@@ -71,6 +71,7 @@ spec:
                 secretKeyRef:
                   name: examflow-secret
                   key: ANTHROPIC_API_KEY
+                  optional: true
           readinessProbe:
             httpGet:
               path: /health

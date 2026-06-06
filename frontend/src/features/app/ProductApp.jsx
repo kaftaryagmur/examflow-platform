@@ -317,7 +317,7 @@ export function ProductApp() {
             }
           />
           <Route path="documents" element={<DocumentArchivePage busy={busy} documents={documents} />} />
-          <Route path="documents/:documentId" element={<DocumentDetailPage documents={documents} />} />
+          <Route path="documents/:documentId" element={<DocumentDetailPage documents={documents} exams={exams} />} />
           <Route path="exams" element={<ExamArchivePage busy={busy} exams={exams} />} />
           <Route path="exams/:examKey" element={<ExamDetailPage exams={exams} />} />
           <Route path="activity" element={<ActivityWorkspace documents={documents} exams={exams} />} />

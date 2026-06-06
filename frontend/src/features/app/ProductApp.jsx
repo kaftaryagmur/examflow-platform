@@ -10,12 +10,13 @@ import {
   ShieldCheck,
   User,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 
 import { ArchiveList } from "../../components/archive";
 import { Alert, Badge, HealthRow } from "../../components/status";
 import { appNav, defaultBaseUrl, demoPassword, sessionKey } from "../../config/appConfig";
+import { DocumentArchivePage, DocumentDetailPage } from "../documents";
 import { parseResponse, responseMessage } from "../../utils/api";
 import { compactTimestamp, delay, displayStatus, parseRecordDate, sortRecordsByDate, toneClass } from "../../utils/format";
 import { readStoredSession } from "../../utils/session";
@@ -314,7 +315,8 @@ export function ProductApp() {
               />
             }
           />
-          <Route path="documents" element={<WorkspaceRecords title="Doküman arşivi" records={documents} empty="Henüz doküman kaydı yok." />} />
+          <Route path="documents" element={<DocumentArchivePage busy={busy} documents={documents} />} />
+          <Route path="documents/:documentId" element={<DocumentDetailPage documents={documents} />} />
           <Route path="exams" element={<WorkspaceRecords title="Sınav arşivi" records={exams} empty="Henüz sınav kaydı yok." />} />
           <Route path="activity" element={<ActivityWorkspace documents={documents} exams={exams} />} />
           <Route path="*" element={<Navigate to="dashboard" replace />} />
@@ -491,7 +493,7 @@ function DashboardPublishPanel({ busy, onSubmit, selectedFile, setSelectedFile, 
           <input
             className="field mt-1 h-auto cursor-pointer py-2 file:mr-3 file:rounded-md file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-sm file:font-bold file:text-ink hover:file:bg-neon-cyan/20"
             type="file"
-            accept=".pdf,.doc,.docx,.txt"
+            accept=".pdf,.docx"
             onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
           />
         </label>

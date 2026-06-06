@@ -374,7 +374,7 @@ function Dashboard({
             <FileUp className="mx-auto h-12 w-12 text-cyber-purple" />
             <span className="mt-4 block truncate text-sm font-semibold text-ink">{selectedFile?.name || "demo-document.pdf"}</span>
             <span className="mt-1 block text-xs text-muted">documentId: {demoDocumentId}</span>
-            <input className="sr-only" type="file" accept=".pdf,.doc,.docx,.txt" onChange={(event) => setSelectedFile(event.target.files?.[0] || null)} />
+            <input className="sr-only" type="file" accept=".pdf,.docx" onChange={(event) => setSelectedFile(event.target.files?.[0] || null)} />
           </label>
 
           <label className="mt-4 block">

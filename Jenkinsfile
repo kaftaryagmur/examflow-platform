@@ -263,6 +263,17 @@ pipeline {
 
                     kubectl apply -k .
 
+                    echo "Syncing ANTHROPIC_API_KEY from Secret Manager (if present)"
+                    ANTHROPIC_SECRET_NAME="${ANTHROPIC_SECRET_NAME:-anthropic-api-key}"
+                    if ANTHROPIC_API_KEY="$(gcloud secrets versions access latest --secret="$ANTHROPIC_SECRET_NAME" --project="$PROJECT_ID" 2>/dev/null)" && [ -n "$ANTHROPIC_API_KEY" ]; then
+                        kubectl patch secret examflow-secret -n $NAMESPACE --type merge \
+                            -p "$(printf '{"stringData":{"ANTHROPIC_API_KEY":"%s"}}' "$ANTHROPIC_API_KEY")"
+                        kubectl rollout restart deployment/exam-service -n $NAMESPACE
+                        echo "ANTHROPIC_API_KEY synced from Secret Manager into examflow-secret."
+                    else
+                        echo "Secret Manager secret '$ANTHROPIC_SECRET_NAME' not accessible; exam-service runs with AI generation disabled."
+                    fi
+
                     kubectl rollout status deployment/mongodb -n $NAMESPACE             --timeout=180s
                     kubectl rollout status deployment/api-service -n $NAMESPACE         --timeout=180s
                     kubectl rollout status deployment/exam-service -n $NAMESPACE        --timeout=180s

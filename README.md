@@ -9,7 +9,7 @@ Sistem; Go servisleri, Docker image'lari, Google Pub/Sub, MongoDB, Artifact Regi
 - `api-service`: Dis dunyadan gelen istekleri alir ve Pub/Sub event'i uretir.
 - `worker-service`: `document-events-worker` subscription'i uzerinden `document.uploaded` eventlerini tuketir ve `document.processed` event'i yayinlar.
 - `validation-service`: Validation event akisini dinler ve dogrulama sonucunu yayinlar.
-- `exam-service`: Exam lifecycle tarafini temsil eder ve ilgili eventleri tuketir.
+- `exam-service`: Exam lifecycle tarafini temsil eder, ilgili eventleri tuketir ve validated examlar icin Anthropic Claude API ile soru/bilgi karti uretir.
 - `mongodb`: Kullanici, document, exam ve islem gecmisi verileri icin kalici veri katmani olarak konumlandirilir.
 - `frontend`: Public demo ve authenticated app ekranlarini iceren React/Vite frontend uygulamasi.
 
@@ -129,6 +129,8 @@ SCRUM-89 kapsaminda `/publish`, JSON body yerine `multipart/form-data` kabul ede
 SCRUM-88 kapsaminda API service, yuklenen PDF/DOCX binary icerigini MongoDB GridFS icinde saklar. `documents` kaydi GridFS referansi icin `fileId`, storage tipi icin `storageBackend` ve frontend viewer icin JWT korumali `fileUrl` alanlarini tasir. Dosya icerigi `GET /documents/{documentId}/file` endpoint'i ile sadece ilgili kullaniciya sunulur.
 
 SCRUM-40 kapsaminda API service, MongoDB uzerinden kullaniciya ait kalici `documents` ve `exams` kayitlarini okuyabilen protected endpointler sunar. Bu sayede document create/read ve exam create/read akislarinin veritabani uzerinden dogrulanmasi mumkun hale gelir.
+
+SCRUM-90 kapsaminda exam-service, `validated` durumuna gecen examlar icin Anthropic Claude API'sini (Messages API, tool use ile yapilandirilmis JSON) cagirir ve uretilen `questions` ile `infoCards` alanlarini `exams` kaydina yazar. API anahtari `ANTHROPIC_API_KEY` olarak Kubernetes Secret uzerinden inject edilir; model `ANTHROPIC_MODEL` (varsayilan `claude-opus-4-8`) ile yapilandirilir. Anahtar yoksa veya uretim hata verirse exam soru alanlari bos sekilde yine kaydedilir, event zinciri bloke olmaz. `GET /exams` bu alanlari frontend exam detay ekranina dondurur.
 
 ## Lokal Testler
 
@@ -553,6 +555,26 @@ Gelistirme ortami ephemeral tasarlanmistir. Kullanilmadiginda GKE cluster silini
 ## Secret Yonetimi
 
 Gercek secret degerleri repo'ya commit edilmemelidir. Gelistirme icin Kubernetes Secret kullanilabilir; daha temiz production-like yaklasim icin Jenkins credentials veya Google Secret Manager tercih edilmelidir.
+
+### Anthropic API Key (Google Secret Manager)
+
+Exam-service'in kullandigi `ANTHROPIC_API_KEY` repoya commit edilmez. `k8s/base/app-secret.yaml` icinde bu alan bos birakilir ve gercek deger deploy sirasinda Google Secret Manager'dan cekilerek `examflow-secret`'a enjekte edilir.
+
+Bir kerelik kurulum (gercek anahtar ile, yeni bir key uretildikten sonra):
+
+```powershell
+# Secret'i olustur ve ilk surumu ekle
+gcloud secrets create anthropic-api-key --project=project-ae272ac8-a64f-4afa-8b7 --replication-policy=automatic
+"sk-ant-..." | gcloud secrets versions add anthropic-api-key --project=project-ae272ac8-a64f-4afa-8b7 --data-file=-
+
+# Deploy eden kimlige (Jenkins service account veya gelistirici) okuma izni ver
+gcloud secrets add-iam-policy-binding anthropic-api-key `
+  --project=project-ae272ac8-a64f-4afa-8b7 `
+  --member="serviceAccount:JENKINS_OR_DEPLOY_SA@project-ae272ac8-a64f-4afa-8b7.iam.gserviceaccount.com" `
+  --role="roles/secretmanager.secretAccessor"
+```
+
+Deploy akisi (`Jenkinsfile` deploy stage'i ve `scripts/start-dev.*`) `kubectl apply -k` sonrasinda anahtari `gcloud secrets versions access latest --secret=anthropic-api-key` ile cekip `examflow-secret`'a patch'ler ve exam-service'i yeniden baslatir. Secret erisilemezse exam-service AI uretimi devre disi sekilde calismaya devam eder (event zinciri bloke olmaz). Secret adi `ANTHROPIC_SECRET_NAME` ile, model `ANTHROPIC_MODEL` ile degistirilebilir.
 
 ## Proje Konumlandirmasi
 

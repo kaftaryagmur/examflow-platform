@@ -68,7 +68,21 @@ type mongoExamStore struct {
 	collection *mongo.Collection
 }
 
-var exams examStore = noopExamStore{}
+// documentReader fetches the persisted document record so the generator has
+// real metadata (file name, source) to work from.
+type documentReader interface {
+	FindByDocumentID(ctx context.Context, userID, documentID string) (Document, error)
+}
+
+type mongoDocumentReader struct {
+	collection *mongo.Collection
+}
+
+var (
+	exams     examStore = noopExamStore{}
+	documents documentReader
+	generator questionGenerator
+)
 
 func (m pubsubMessage) ID() string   { return m.msg.ID }
 func (m pubsubMessage) Data() []byte { return m.msg.Data }
@@ -89,7 +103,15 @@ func main() {
 	} else if mongoClient != nil {
 		defer mongoClient.Disconnect(context.Background())
 		exams = mongoExamStore{collection: mongoDatabase.Collection(examsCollection)}
+		documents = mongoDocumentReader{collection: mongoDatabase.Collection(documentsCollection)}
 		logKV("info", "exam-service", "mongodb connection ready", "database", mongoDatabase.Name())
+	}
+
+	if apiKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")); apiKey != "" {
+		generator = newClaudeQuestionGenerator(apiKey, os.Getenv("ANTHROPIC_MODEL"), os.Getenv("ANTHROPIC_BASE_URL"))
+		logKV("info", "exam-service", "ai question generation enabled", "model", generator.Model())
+	} else {
+		logKV("info", "exam-service", "anthropic api key not configured, ai question generation disabled")
 	}
 
 	handler := newServer()
@@ -201,6 +223,10 @@ func handleValidatedMessage(msg examMessage) {
 		return
 	}
 
+	if exam.Status == examStatusValidated {
+		enrichExamWithGeneratedContent(&exam, event)
+	}
+
 	if err := exams.Save(context.Background(), exam); err != nil {
 		logKV("error", "exam-service", "exam persistence failed", "message_id", msg.ID(), "event_id", event.EventID, "document_id", exam.DocumentID, "error", err.Error())
 		msg.Nack()
@@ -236,6 +262,66 @@ func (store mongoExamStore) Save(ctx context.Context, exam Exam) error {
 	}
 	logKV("info", "exam-service", "exam persisted to mongodb", "document_id", exam.DocumentID, "collection", store.collection.Name())
 	return nil
+}
+
+func (r mongoDocumentReader) FindByDocumentID(ctx context.Context, userID, documentID string) (Document, error) {
+	findCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	filter := bson.M{"documentId": strings.TrimSpace(documentID)}
+	if uid := strings.TrimSpace(userID); uid != "" {
+		objectID, err := bson.ObjectIDFromHex(uid)
+		if err != nil {
+			return Document{}, fmt.Errorf("invalid userId %q", userID)
+		}
+		filter["userId"] = objectID
+	}
+
+	var document Document
+	if err := r.collection.FindOne(findCtx, filter).Decode(&document); err != nil {
+		return Document{}, err
+	}
+	return document, nil
+}
+
+// enrichExamWithGeneratedContent generates questions/info cards for a validated
+// exam. Generation is best-effort: any failure is logged and the exam is still
+// persisted (without questions) so the event pipeline is never blocked.
+func enrichExamWithGeneratedContent(exam *Exam, event validatedEvent) {
+	if generator == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	input := GenerationInput{DocumentID: event.DocumentID}
+	if documents != nil {
+		doc, err := documents.FindByDocumentID(ctx, event.UserID, event.DocumentID)
+		if err != nil {
+			logKV("warn", "exam-service", "document metadata lookup failed for generation", "document_id", event.DocumentID, "error", err.Error())
+		} else {
+			input.FileName = doc.FileName
+			input.Source = doc.Source
+		}
+	}
+
+	content, err := generator.Generate(ctx, input)
+	if err != nil {
+		logKV("warn", "exam-service", "exam content generation failed, persisting without questions", "document_id", event.DocumentID, "error", err.Error())
+		return
+	}
+
+	exam.Questions = content.Questions
+	exam.InfoCards = content.InfoCards
+	exam.GenerationModel = generator.Model()
+	logKV(
+		"info", "exam-service", "exam content generated",
+		"document_id", event.DocumentID,
+		"question_count", len(content.Questions),
+		"info_card_count", len(content.InfoCards),
+		"model", generator.Model(),
+	)
 }
 
 func parseEventEnvelope(data []byte) (eventEnvelope, error) {

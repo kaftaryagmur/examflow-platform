@@ -17,6 +17,7 @@ import { ArchiveList } from "../../components/archive";
 import { Alert, Badge, HealthRow } from "../../components/status";
 import { appNav, defaultBaseUrl, demoPassword, sessionKey } from "../../config/appConfig";
 import { DocumentArchivePage, DocumentDetailPage } from "../documents";
+import { ExamArchivePage, ExamDetailPage } from "../exams";
 import { parseResponse, responseMessage } from "../../utils/api";
 import { compactTimestamp, delay, displayStatus, parseRecordDate, sortRecordsByDate, toneClass } from "../../utils/format";
 import { readStoredSession } from "../../utils/session";
@@ -316,8 +317,9 @@ export function ProductApp() {
             }
           />
           <Route path="documents" element={<DocumentArchivePage busy={busy} documents={documents} />} />
-          <Route path="documents/:documentId" element={<DocumentDetailPage documents={documents} />} />
-          <Route path="exams" element={<WorkspaceRecords title="Sınav arşivi" records={exams} empty="Henüz sınav kaydı yok." />} />
+          <Route path="documents/:documentId" element={<DocumentDetailPage documents={documents} exams={exams} />} />
+          <Route path="exams" element={<ExamArchivePage busy={busy} exams={exams} />} />
+          <Route path="exams/:examKey" element={<ExamDetailPage exams={exams} />} />
           <Route path="activity" element={<ActivityWorkspace documents={documents} exams={exams} />} />
           <Route path="*" element={<Navigate to="dashboard" replace />} />
         </Routes>

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,11 +105,21 @@ type mongoUserStore struct {
 
 type documentStore interface {
 	CreateDocument(context.Context, Document) (Document, error)
+	FindDocument(context.Context, string, string) (Document, error)
 	ListDocuments(context.Context, string) ([]Document, error)
 }
 
 type mongoDocumentStore struct {
 	collection *mongo.Collection
+}
+
+type documentFileStore interface {
+	SaveDocumentFile(context.Context, PublishRequest, string) (bson.ObjectID, error)
+	OpenDocumentFile(context.Context, bson.ObjectID) (io.ReadCloser, error)
+}
+
+type mongoDocumentFileStore struct {
+	bucket *mongo.GridFSBucket
 }
 
 type examStore interface {
@@ -157,6 +169,7 @@ func main() {
 
 	var users userStore
 	var documents documentStore
+	var files documentFileStore
 	var exams examStore
 	db, err := connectMongoDB(ctx)
 	if err != nil {
@@ -171,6 +184,7 @@ func main() {
 		if mongoDB, ok := db.(*mongoDatabaseClient); ok {
 			users = mongoUserStore{collection: mongoDB.database.Collection(usersCollection)}
 			documents = mongoDocumentStore{collection: mongoDB.database.Collection(documentsCollection)}
+			files = mongoDocumentFileStore{bucket: mongoDB.database.GridFSBucket()}
 			exams = mongoExamStore{collection: mongoDB.database.Collection(examsCollection)}
 			if err := ensureUserIndexes(ctx, users); err != nil {
 				logKV("warn", "api-service", "mongodb user index setup failed", "database", db.Name(), "error", err.Error())
@@ -183,7 +197,7 @@ func main() {
 		logKV("warn", "api-service", "jwt secret not configured, auth endpoints degraded")
 	}
 
-	handler := newServer(ctx, pub, mode, db, users, documents, exams, auth, authConfigured)
+	handler := newServer(ctx, pub, mode, db, users, documents, exams, auth, authConfigured, files)
 
 	logKV("info", "api-service", "listening", "port", port, "mode", mode)
 	if err := http.ListenAndServe(":"+port, handler); err != nil {
@@ -192,8 +206,12 @@ func main() {
 	}
 }
 
-func newServer(ctx context.Context, pub publisher, mode string, db databaseClient, users userStore, documents documentStore, exams examStore, auth authService, authConfigured bool) http.Handler {
+func newServer(ctx context.Context, pub publisher, mode string, db databaseClient, users userStore, documents documentStore, exams examStore, auth authService, authConfigured bool, optionalFileStores ...documentFileStore) http.Handler {
 	mux := http.NewServeMux()
+	var files documentFileStore
+	if len(optionalFileStores) > 0 {
+		files = optionalFileStores[0]
+	}
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, StatusResponse{
@@ -246,6 +264,10 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			http.Error(w, "document store unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		if files == nil {
+			http.Error(w, "file store unavailable", http.StatusServiceUnavailable)
+			return
+		}
 
 		r.Body = http.MaxBytesReader(w, r.Body, maxMultipartRequestBytes)
 		req, err := decodePublishRequest(r)
@@ -256,7 +278,14 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 		}
 
 		event := buildEvent(req, claims.UserID)
-		document, err := buildDocumentRecord(req, claims.UserID)
+		fileID, err := files.SaveDocumentFile(r.Context(), req, claims.UserID)
+		if err != nil {
+			logKV("error", "api-service", "file storage failed", "endpoint", "/publish", "event_id", event.EventID, "document_id", event.DocumentID, "user_id", event.UserID, "file_name", event.FileName, "error", err.Error())
+			http.Error(w, "file storage failed", http.StatusInternalServerError)
+			return
+		}
+
+		document, err := buildDocumentRecord(req, claims.UserID, fileID)
 		if err != nil {
 			logKV("warn", "api-service", "document ownership validation failed", "endpoint", "/publish", "error", err.Error())
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -274,6 +303,7 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			"user_id", event.UserID,
 			"document_id", event.DocumentID,
 			"file_name", event.FileName,
+			"file_id", document.FileID.Hex(),
 			"source", event.Source,
 			"mode", mode,
 		)
@@ -343,6 +373,73 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 		writeJSON(w, http.StatusOK, map[string]any{"documents": records})
 	})
 
+	documentFileHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authPrincipalFromContext(r.Context())
+		if !ok {
+			http.Error(w, "auth context unavailable", http.StatusUnauthorized)
+			return
+		}
+		if documents == nil {
+			http.Error(w, "document store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if files == nil {
+			http.Error(w, "file store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		documentID, ok := documentIDFromFilePath(r.URL.Path)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+
+		document, err := documents.FindDocument(r.Context(), claims.UserID, documentID)
+		if errors.Is(err, errDocumentNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			logKV("error", "api-service", "document file metadata read failed", "endpoint", "/documents/{documentId}/file", "user_id", claims.UserID, "document_id", documentID, "error", err.Error())
+			http.Error(w, "document read failed", http.StatusInternalServerError)
+			return
+		}
+		if document.FileID.IsZero() {
+			http.NotFound(w, r)
+			return
+		}
+
+		stream, err := files.OpenDocumentFile(r.Context(), document.FileID)
+		if errors.Is(err, mongo.ErrFileNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			logKV("error", "api-service", "document file stream failed", "endpoint", "/documents/{documentId}/file", "user_id", claims.UserID, "document_id", documentID, "file_id", document.FileID.Hex(), "error", err.Error())
+			http.Error(w, "file stream failed", http.StatusInternalServerError)
+			return
+		}
+		defer stream.Close()
+
+		contentType := strings.TrimSpace(document.ContentType)
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, sanitizeContentDispositionFileName(document.FileName)))
+		if document.FileSize > 0 {
+			w.Header().Set("Content-Length", fmt.Sprint(document.FileSize))
+		}
+
+		if _, err := io.Copy(w, stream); err != nil {
+			logKV("warn", "api-service", "document file response copy failed", "endpoint", "/documents/{documentId}/file", "user_id", claims.UserID, "document_id", documentID, "file_id", document.FileID.Hex(), "error", err.Error())
+		}
+	})
+
 	listExamsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -368,9 +465,13 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 
 	if authConfigured {
 		mux.Handle("/documents", auth.RequireAuth(listDocumentsHandler))
+		mux.Handle("/documents/", auth.RequireAuth(documentFileHandler))
 		mux.Handle("/exams", auth.RequireAuth(listExamsHandler))
 	} else {
 		mux.HandleFunc("/documents", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
+		})
+		mux.HandleFunc("/documents/", func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
 		})
 		mux.HandleFunc("/exams", func(w http.ResponseWriter, r *http.Request) {
@@ -554,6 +655,41 @@ func readUploadFile(file multipart.File) ([]byte, error) {
 	return content, nil
 }
 
+func documentIDFromFilePath(path string) (string, bool) {
+	const prefix = "/documents/"
+	const suffix = "/file"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return "", false
+	}
+
+	rawDocumentID := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	rawDocumentID = strings.Trim(rawDocumentID, "/")
+	if rawDocumentID == "" || strings.Contains(rawDocumentID, "/") {
+		return "", false
+	}
+
+	documentID, err := url.PathUnescape(rawDocumentID)
+	if err != nil {
+		return "", false
+	}
+	documentID = strings.TrimSpace(documentID)
+	if documentID == "" {
+		return "", false
+	}
+	return documentID, true
+}
+
+func sanitizeContentDispositionFileName(fileName string) string {
+	fileName = filepath.Base(strings.TrimSpace(fileName))
+	fileName = strings.ReplaceAll(fileName, `"`, "")
+	fileName = strings.ReplaceAll(fileName, "\r", "")
+	fileName = strings.ReplaceAll(fileName, "\n", "")
+	if fileName == "." || fileName == string(filepath.Separator) || fileName == "" {
+		return "document"
+	}
+	return fileName
+}
+
 func isAllowedDocumentFile(fileName string) bool {
 	switch strings.ToLower(filepath.Ext(fileName)) {
 	case ".pdf", ".docx":
@@ -711,6 +847,32 @@ func (store mongoDocumentStore) CreateDocument(ctx context.Context, document Doc
 	return document, nil
 }
 
+func (store mongoDocumentStore) FindDocument(ctx context.Context, userID string, documentID string) (Document, error) {
+	userObjectID, err := objectIDFromUserID(userID)
+	if err != nil {
+		return Document{}, err
+	}
+
+	findCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var document Document
+	err = store.collection.FindOne(
+		findCtx,
+		bson.M{
+			"userId":     userObjectID,
+			"documentId": strings.TrimSpace(documentID),
+		},
+	).Decode(&document)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return Document{}, errDocumentNotFound
+	}
+	if err != nil {
+		return Document{}, err
+	}
+	return document, nil
+}
+
 func (store mongoDocumentStore) ListDocuments(ctx context.Context, userID string) ([]Document, error) {
 	userObjectID, err := objectIDFromUserID(userID)
 	if err != nil {
@@ -735,6 +897,30 @@ func (store mongoDocumentStore) ListDocuments(ctx context.Context, userID string
 		return nil, err
 	}
 	return documents, nil
+}
+
+func (store mongoDocumentFileStore) SaveDocumentFile(ctx context.Context, req PublishRequest, userID string) (bson.ObjectID, error) {
+	saveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	metadata := bson.D{
+		{Key: "documentId", Value: strings.TrimSpace(req.DocumentID)},
+		{Key: "userId", Value: strings.TrimSpace(userID)},
+		{Key: "contentType", Value: strings.TrimSpace(req.ContentType)},
+		{Key: "source", Value: strings.TrimSpace(req.Source)},
+		{Key: "uploadedAt", Value: time.Now().UTC().Format(time.RFC3339)},
+	}
+
+	return store.bucket.UploadFromStream(
+		saveCtx,
+		strings.TrimSpace(req.FileName),
+		bytes.NewReader(req.FileContent),
+		options.GridFSUpload().SetMetadata(metadata),
+	)
+}
+
+func (store mongoDocumentFileStore) OpenDocumentFile(ctx context.Context, fileID bson.ObjectID) (io.ReadCloser, error) {
+	return store.bucket.OpenDownloadStream(ctx, fileID)
 }
 
 func (store mongoExamStore) ListExams(ctx context.Context, userID string) ([]Exam, error) {

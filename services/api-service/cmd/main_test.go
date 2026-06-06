@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -45,6 +47,14 @@ type fakeDocumentStore struct {
 	err       error
 }
 
+type fakeFileStore struct {
+	files       map[bson.ObjectID][]byte
+	err         error
+	openErr     error
+	lastRequest PublishRequest
+	lastUserID  string
+}
+
 type fakeExamStore struct {
 	exams []Exam
 	err   error
@@ -66,6 +76,15 @@ func testBearerToken(t *testing.T) string {
 		DisplayName: "Teacher User",
 		Status:      userStatusActive,
 	}
+	token, err := testAuth.GenerateToken(user)
+	if err != nil {
+		t.Fatalf("token generation failed: %v", err)
+	}
+	return token
+}
+
+func testBearerTokenForUser(t *testing.T, user User) string {
+	t.Helper()
 	token, err := testAuth.GenerateToken(user)
 	if err != nil {
 		t.Fatalf("token generation failed: %v", err)
@@ -159,11 +178,52 @@ func (f *fakeDocumentStore) CreateDocument(_ context.Context, document Document)
 	return document, nil
 }
 
+func (f *fakeDocumentStore) FindDocument(_ context.Context, userID string, documentID string) (Document, error) {
+	if f.err != nil {
+		return Document{}, f.err
+	}
+	userObjectID, err := objectIDFromUserID(userID)
+	if err != nil {
+		return Document{}, err
+	}
+	for _, document := range f.documents {
+		if document.DocumentID == documentID && document.UserID == userObjectID {
+			return document, nil
+		}
+	}
+	return Document{}, errDocumentNotFound
+}
+
 func (f *fakeDocumentStore) ListDocuments(context.Context, string) ([]Document, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.documents, nil
+}
+
+func (f *fakeFileStore) SaveDocumentFile(_ context.Context, req PublishRequest, userID string) (bson.ObjectID, error) {
+	if f.err != nil {
+		return bson.ObjectID{}, f.err
+	}
+	if f.files == nil {
+		f.files = map[bson.ObjectID][]byte{}
+	}
+	fileID := bson.NewObjectID()
+	f.files[fileID] = append([]byte(nil), req.FileContent...)
+	f.lastRequest = req
+	f.lastUserID = userID
+	return fileID, nil
+}
+
+func (f *fakeFileStore) OpenDocumentFile(_ context.Context, fileID bson.ObjectID) (io.ReadCloser, error) {
+	if f.openErr != nil {
+		return nil, f.openErr
+	}
+	content, ok := f.files[fileID]
+	if !ok {
+		return nil, mongo.ErrFileNotFound
+	}
+	return io.NopCloser(bytes.NewReader(content)), nil
 }
 
 func (f *fakeExamStore) ListExams(context.Context, string) ([]Exam, error) {
@@ -180,7 +240,7 @@ func TestPublishRequiresFile(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, nil, testAuth, true, &fakeFileStore{}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -200,7 +260,8 @@ func TestPublishReturnsAcceptedResponse(t *testing.T) {
 
 	fake := &fakePublisher{result: fakePublishResult{id: "msg-123"}}
 	documents := &fakeDocumentStore{}
-	newServer(context.Background(), fake, "pubsub", nil, nil, documents, nil, testAuth, true).ServeHTTP(rec, req)
+	files := &fakeFileStore{}
+	newServer(context.Background(), fake, "pubsub", nil, nil, documents, nil, testAuth, true, files).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -239,6 +300,18 @@ func TestPublishReturnsAcceptedResponse(t *testing.T) {
 	}
 	if documents.documents[0].ContentType == "" {
 		t.Fatal("expected persisted contentType")
+	}
+	if documents.documents[0].FileID.IsZero() {
+		t.Fatal("expected persisted fileId")
+	}
+	if documents.documents[0].StorageBackend != storageBackendGridFS {
+		t.Fatalf("expected storage backend %q, got %q", storageBackendGridFS, documents.documents[0].StorageBackend)
+	}
+	if documents.documents[0].FileURL != "/documents/doc-42/file" {
+		t.Fatalf("expected fileUrl /documents/doc-42/file, got %q", documents.documents[0].FileURL)
+	}
+	if !bytes.Equal(files.files[documents.documents[0].FileID], fileContent) {
+		t.Fatal("expected uploaded file content to be stored")
 	}
 	if documents.documents[0].Status != documentStatusUploaded {
 		t.Fatalf("expected uploaded status, got %q", documents.documents[0].Status)
@@ -280,7 +353,7 @@ func TestPublishReturnsErrorWhenDocumentPersistenceFails(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	documents := &fakeDocumentStore{err: errors.New("insert failed")}
-	newServer(context.Background(), nil, "mock", nil, nil, documents, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, nil, documents, nil, testAuth, true, &fakeFileStore{}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
@@ -293,7 +366,7 @@ func TestPublishRejectsJSONBody(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, nil, testAuth, true, &fakeFileStore{}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -307,7 +380,7 @@ func TestPublishRejectsUnsupportedFileExtension(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
 	rec := httptest.NewRecorder()
 
-	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, nil, testAuth, true).ServeHTTP(rec, req)
+	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, nil, testAuth, true, &fakeFileStore{}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -350,6 +423,94 @@ func TestListDocumentsRequiresStore(t *testing.T) {
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", rec.Code)
+	}
+}
+
+func TestDocumentFileRequiresBearerToken(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/documents/doc-42/file", nil)
+	rec := httptest.NewRecorder()
+
+	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, nil, testAuth, true, &fakeFileStore{}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestDocumentFileReturnsOwnedFile(t *testing.T) {
+	user := User{
+		ID:          bson.NewObjectID(),
+		Email:       "teacher@example.com",
+		DisplayName: "Teacher User",
+		Status:      userStatusActive,
+	}
+	fileID := bson.NewObjectID()
+	fileContent := []byte("%PDF-1.4 secure file")
+	documents := &fakeDocumentStore{documents: []Document{
+		{
+			ID:          bson.NewObjectID(),
+			UserID:      user.ID,
+			DocumentID:  "doc-42",
+			FileID:      fileID,
+			FileName:    "week1.pdf",
+			FileSize:    int64(len(fileContent)),
+			ContentType: "application/pdf",
+			Status:      documentStatusUploaded,
+		},
+	}}
+	files := &fakeFileStore{files: map[bson.ObjectID][]byte{fileID: fileContent}}
+	req := httptest.NewRequest(http.MethodGet, "/documents/doc-42/file", nil)
+	req.Header.Set("Authorization", "Bearer "+testBearerTokenForUser(t, user))
+	rec := httptest.NewRecorder()
+
+	newServer(context.Background(), nil, "mock", nil, nil, documents, nil, testAuth, true, files).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Content-Type") != "application/pdf" {
+		t.Fatalf("expected application/pdf, got %q", rec.Header().Get("Content-Type"))
+	}
+	if !bytes.Equal(rec.Body.Bytes(), fileContent) {
+		t.Fatalf("expected file body %q, got %q", string(fileContent), rec.Body.String())
+	}
+}
+
+func TestDocumentFileDoesNotExposeOtherUsersFile(t *testing.T) {
+	owner := User{
+		ID:          bson.NewObjectID(),
+		Email:       "owner@example.com",
+		DisplayName: "Owner User",
+		Status:      userStatusActive,
+	}
+	requester := User{
+		ID:          bson.NewObjectID(),
+		Email:       "requester@example.com",
+		DisplayName: "Requester User",
+		Status:      userStatusActive,
+	}
+	fileID := bson.NewObjectID()
+	documents := &fakeDocumentStore{documents: []Document{
+		{
+			ID:          bson.NewObjectID(),
+			UserID:      owner.ID,
+			DocumentID:  "doc-42",
+			FileID:      fileID,
+			FileName:    "week1.pdf",
+			FileSize:    4,
+			ContentType: "application/pdf",
+			Status:      documentStatusUploaded,
+		},
+	}}
+	files := &fakeFileStore{files: map[bson.ObjectID][]byte{fileID: []byte("file")}}
+	req := httptest.NewRequest(http.MethodGet, "/documents/doc-42/file", nil)
+	req.Header.Set("Authorization", "Bearer "+testBearerTokenForUser(t, requester))
+	rec := httptest.NewRecorder()
+
+	newServer(context.Background(), nil, "mock", nil, nil, documents, nil, testAuth, true, files).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
 	}
 }
 

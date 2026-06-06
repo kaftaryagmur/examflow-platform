@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -23,19 +26,24 @@ func init() {
 }
 
 type Event struct {
-	EventID    string `json:"eventId,omitempty"`
-	EventType  string `json:"eventType"`
-	UserID     string `json:"userId"`
-	DocumentID string `json:"documentId"`
-	FileName   string `json:"fileName,omitempty"`
-	Source     string `json:"source,omitempty"`
-	Timestamp  string `json:"timestamp"`
+	EventID     string `json:"eventId,omitempty"`
+	EventType   string `json:"eventType"`
+	UserID      string `json:"userId"`
+	DocumentID  string `json:"documentId"`
+	FileName    string `json:"fileName,omitempty"`
+	FileSize    int64  `json:"fileSize,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	Source      string `json:"source,omitempty"`
+	Timestamp   string `json:"timestamp"`
 }
 
 type PublishRequest struct {
-	DocumentID string `json:"documentId"`
-	FileName   string `json:"fileName"`
-	Source     string `json:"source"`
+	DocumentID  string `json:"documentId"`
+	FileName    string `json:"fileName"`
+	FileSize    int64  `json:"fileSize"`
+	ContentType string `json:"contentType"`
+	Source      string `json:"source"`
+	FileContent []byte `json:"-"`
 }
 
 type PublishResponse struct {
@@ -109,6 +117,13 @@ type examStore interface {
 type mongoExamStore struct {
 	collection *mongo.Collection
 }
+
+const (
+	publishFileFieldName     = "file"
+	maxUploadBytes           = 20 << 20
+	maxMultipartRequestBytes = maxUploadBytes + (1 << 20)
+	multipartMaxMemory       = 8 << 20
+)
 
 func (t topicPublisher) Publish(ctx context.Context, msg *pubsub.Message) publishResult {
 	return t.topic.Publish(ctx, msg)
@@ -232,6 +247,7 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			return
 		}
 
+		r.Body = http.MaxBytesReader(w, r.Body, maxMultipartRequestBytes)
 		req, err := decodePublishRequest(r)
 		if err != nil {
 			logKV("warn", "api-service", "invalid request", "endpoint", "/publish", "error", err.Error())
@@ -464,15 +480,59 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 func decodePublishRequest(r *http.Request) (PublishRequest, error) {
 	defer r.Body.Close()
 
-	var req PublishRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return PublishRequest{}, errors.New("invalid json body")
+	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+	if !strings.HasPrefix(contentType, "multipart/form-data") {
+		return PublishRequest{}, errors.New("content-type must be multipart/form-data")
 	}
 
-	if strings.TrimSpace(req.DocumentID) == "" {
-		return PublishRequest{}, errors.New("documentId is required")
+	return decodeMultipartPublishRequest(r)
+}
+
+func decodeMultipartPublishRequest(r *http.Request) (PublishRequest, error) {
+	if err := r.ParseMultipartForm(multipartMaxMemory); err != nil {
+		return PublishRequest{}, errors.New("invalid multipart form data")
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
 	}
 
+	file, header, err := r.FormFile(publishFileFieldName)
+	if err != nil {
+		return PublishRequest{}, errors.New("file is required")
+	}
+	defer file.Close()
+
+	fileName := strings.TrimSpace(header.Filename)
+	if fileName == "" {
+		return PublishRequest{}, errors.New("file name is required")
+	}
+	if !isAllowedDocumentFile(fileName) {
+		return PublishRequest{}, errors.New("only .pdf and .docx files are allowed")
+	}
+
+	content, err := readUploadFile(file)
+	if err != nil {
+		return PublishRequest{}, err
+	}
+
+	documentID := strings.TrimSpace(r.FormValue("documentId"))
+	if documentID == "" {
+		documentID = fmt.Sprintf("doc-%d", time.Now().UTC().UnixNano())
+	}
+
+	contentType := strings.TrimSpace(header.Header.Get("Content-Type"))
+	if contentType == "" {
+		contentType = http.DetectContentType(content)
+	}
+
+	req := PublishRequest{
+		DocumentID:  documentID,
+		FileName:    fileName,
+		FileSize:    int64(len(content)),
+		ContentType: contentType,
+		Source:      strings.TrimSpace(r.FormValue("source")),
+		FileContent: content,
+	}
 	if strings.TrimSpace(req.Source) == "" {
 		req.Source = "manual"
 	}
@@ -480,15 +540,40 @@ func decodePublishRequest(r *http.Request) (PublishRequest, error) {
 	return req, nil
 }
 
+func readUploadFile(file multipart.File) ([]byte, error) {
+	content, err := io.ReadAll(io.LimitReader(file, maxUploadBytes+1))
+	if err != nil {
+		return nil, errors.New("could not read uploaded file")
+	}
+	if len(content) == 0 {
+		return nil, errors.New("file must not be empty")
+	}
+	if int64(len(content)) > maxUploadBytes {
+		return nil, fmt.Errorf("file is too large, max size is %d bytes", maxUploadBytes)
+	}
+	return content, nil
+}
+
+func isAllowedDocumentFile(fileName string) bool {
+	switch strings.ToLower(filepath.Ext(fileName)) {
+	case ".pdf", ".docx":
+		return true
+	default:
+		return false
+	}
+}
+
 func buildEvent(req PublishRequest, userID string) Event {
 	return Event{
-		EventID:    fmt.Sprintf("upload-%s-%d", strings.TrimSpace(req.DocumentID), time.Now().UTC().UnixNano()),
-		EventType:  "document.uploaded",
-		UserID:     strings.TrimSpace(userID),
-		DocumentID: strings.TrimSpace(req.DocumentID),
-		FileName:   strings.TrimSpace(req.FileName),
-		Source:     strings.TrimSpace(req.Source),
-		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		EventID:     fmt.Sprintf("upload-%s-%d", strings.TrimSpace(req.DocumentID), time.Now().UTC().UnixNano()),
+		EventType:   "document.uploaded",
+		UserID:      strings.TrimSpace(userID),
+		DocumentID:  strings.TrimSpace(req.DocumentID),
+		FileName:    strings.TrimSpace(req.FileName),
+		FileSize:    req.FileSize,
+		ContentType: strings.TrimSpace(req.ContentType),
+		Source:      strings.TrimSpace(req.Source),
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}
 }
 

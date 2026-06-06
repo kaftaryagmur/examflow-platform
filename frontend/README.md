@@ -8,7 +8,7 @@ Bu klasor ExamFlow icin React + Vite + Tailwind tabanli frontend uygulamasini ba
 - `/app/` altinda calisan authenticated frontend shell
 - `/health` ve `/ready` durumlarini gosterme
 - demo kullanici icin register/login akisi
-- JWT ile protected `/publish` istegi gonderme
+- JWT ile protected `/publish` endpoint'ine multipart dosya gonderme
 - `/documents` ve `/exams` kayitlarini listeleme
 - publish sonrasi received, processing, validated, published ve failed state takibi
 
@@ -84,4 +84,4 @@ http://<DEMO_UI_EXTERNAL_IP>/demo/
 http://<DEMO_UI_EXTERNAL_IP>/app/
 ```
 
-Not: UI dosya binary'sini upload etmez; backend'in mevcut `/publish` kontratina uygun olarak `documentId`, `fileName` ve `source` alanlari ile event olusturur.
+Not: UI secilen `.pdf` veya `.docx` dosyasini `FormData` ile `file` alaninda gonderir. `documentId` ve `source` ayni multipart isteginde tasinir; `Content-Type` header'i browser tarafindan otomatik uretilir.

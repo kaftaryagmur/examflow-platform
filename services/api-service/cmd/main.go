@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,12 +41,13 @@ type Event struct {
 }
 
 type PublishRequest struct {
-	DocumentID  string `json:"documentId"`
-	FileName    string `json:"fileName"`
-	FileSize    int64  `json:"fileSize"`
-	ContentType string `json:"contentType"`
-	Source      string `json:"source"`
-	FileContent []byte `json:"-"`
+	DocumentID      string          `json:"documentId"`
+	FileName        string          `json:"fileName"`
+	FileSize        int64           `json:"fileSize"`
+	ContentType     string          `json:"contentType"`
+	Source          string          `json:"source"`
+	GenerationPrefs GenerationPrefs `json:"generationPrefs"`
+	FileContent     []byte          `json:"-"`
 }
 
 type PublishResponse struct {
@@ -627,18 +629,35 @@ func decodeMultipartPublishRequest(r *http.Request) (PublishRequest, error) {
 	}
 
 	req := PublishRequest{
-		DocumentID:  documentID,
-		FileName:    fileName,
-		FileSize:    int64(len(content)),
-		ContentType: contentType,
-		Source:      strings.TrimSpace(r.FormValue("source")),
-		FileContent: content,
+		DocumentID:      documentID,
+		FileName:        fileName,
+		FileSize:        int64(len(content)),
+		ContentType:     contentType,
+		Source:          strings.TrimSpace(r.FormValue("source")),
+		GenerationPrefs: parseGenerationPrefs(r),
+		FileContent:     content,
 	}
 	if strings.TrimSpace(req.Source) == "" {
 		req.Source = "manual"
 	}
 
 	return req, nil
+}
+
+// parseGenerationPrefs reads the optional generation preference form fields.
+// Invalid or out-of-range values are normalized later by normalizeGenerationPrefs.
+func parseGenerationPrefs(r *http.Request) GenerationPrefs {
+	prefs := GenerationPrefs{
+		Difficulty: strings.TrimSpace(r.FormValue("difficulty")),
+		Focus:      strings.TrimSpace(r.FormValue("focus")),
+	}
+	if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("questionCount"))); err == nil {
+		prefs.QuestionCount = v
+	}
+	if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("infoCardCount"))); err == nil {
+		prefs.InfoCardCount = v
+	}
+	return normalizeGenerationPrefs(prefs)
 }
 
 func readUploadFile(file multipart.File) ([]byte, error) {

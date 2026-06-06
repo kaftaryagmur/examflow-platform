@@ -174,7 +174,7 @@ export function ExamDetailPage({ exams }) {
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.75fr)]">
             <GenerationContractPanel exam={exam} />
-            <ExamQualityPanel hasGeneratedQuestions={hasGeneratedQuestions} questionCount={generatedQuestions.length} />
+            <ExamQualityPanel exam={exam} hasGeneratedQuestions={hasGeneratedQuestions} questionCount={generatedQuestions.length} />
           </div>
         </main>
       </div>
@@ -361,29 +361,63 @@ function GenerationContractPanel({ exam }) {
   );
 }
 
-function ExamQualityPanel({ hasGeneratedQuestions, questionCount }) {
-  const checks = [
-    { label: "Çoktan seçmeli soru yapısı", isReady: hasGeneratedQuestions },
-    { label: "Doğru cevap alanı", isReady: hasGeneratedQuestions },
-    { label: "Açıklama ve konu etiketi", isReady: hasGeneratedQuestions },
-    { label: "AI üretimi backend tarafında bağlanacak", isReady: false },
-  ];
+function ExamQualityPanel({ exam, hasGeneratedQuestions, questionCount }) {
+  const qualityStatus = exam.qualityStatus;
+  const issues = Array.isArray(exam.qualityIssues) ? exam.qualityIssues : [];
+  const prefs = exam.generationPrefs || {};
+  const hasQuality = Boolean(qualityStatus);
+  const passed = qualityStatus === "passed";
 
   return (
     <section className="panel p-5">
-      <p className="label">Kalite kontrol</p>
-      <h3 className="section-title">Sınav üretim kapsamı</h3>
-      <p className="mt-2 text-sm leading-6 text-muted">
-        Bu ekranda {questionCount > 0 ? `${questionCount} gerçek soru` : "henüz gerçek soru"} görüntüleniyor.
-      </p>
-      <div className="mt-5 grid gap-2">
-        {checks.map((check) => (
-          <div className="flex items-center gap-3 rounded-lg border border-space-line bg-black/20 p-3" key={check.label}>
-            <CheckCircle2 className={`h-4 w-4 shrink-0 ${check.isReady ? "text-neon-green" : "text-muted"}`} />
-            <span className="text-sm font-bold text-ink">{check.label}</span>
-          </div>
-        ))}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="label">Kalite kontrol</p>
+          <h3 className="section-title">Üretim kalite doğrulaması</h3>
+        </div>
+        {hasQuality && <Badge tone={passed ? "ok" : "warning"}>{passed ? "Doğrulandı" : "Sorun var"}</Badge>}
       </div>
+
+      {hasQuality ? (
+        <>
+          <p className="mt-3 text-sm leading-6 text-muted">
+            İstenen: {prefs.questionCount || "-"} soru · {displayDifficulty(prefs.difficulty)} · {prefs.infoCardCount ?? "-"} bilgi kartı. Üretilen: {questionCount} soru.
+          </p>
+          {passed ? (
+            <div className="mt-4 flex items-center gap-3 rounded-lg border border-neon-green/35 bg-neon-green/10 p-3">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-neon-green" />
+              <span className="text-sm font-bold text-ink">Tüm kalite kontrolleri geçti.</span>
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-2">
+              {issues.map((issue, index) => (
+                <div className="flex items-start gap-3 rounded-lg border border-neon-amber/35 bg-neon-amber/10 p-3" key={`${issue}-${index}`}>
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-neon-amber" />
+                  <span className="break-words text-sm leading-5 text-ink">{issue}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            Bu ekranda {questionCount > 0 ? `${questionCount} gerçek soru` : "henüz gerçek soru"} görüntüleniyor. Kalite doğrulaması backend üretimi tamamlandığında görünür.
+          </p>
+          <div className="mt-5 grid gap-2">
+            {[
+              { label: "Çoktan seçmeli soru yapısı", isReady: hasGeneratedQuestions },
+              { label: "Doğru cevap alanı", isReady: hasGeneratedQuestions },
+              { label: "Açıklama ve konu etiketi", isReady: hasGeneratedQuestions },
+            ].map((check) => (
+              <div className="flex items-center gap-3 rounded-lg border border-space-line bg-black/20 p-3" key={check.label}>
+                <CheckCircle2 className={`h-4 w-4 shrink-0 ${check.isReady ? "text-neon-green" : "text-muted"}`} />
+                <span className="text-sm font-bold text-ink">{check.label}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </section>
   );
 }

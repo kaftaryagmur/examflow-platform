@@ -179,6 +179,11 @@ export function DemoDashboard() {
 
   async function submitDocument(event) {
     event.preventDefault();
+    if (!selectedFile) {
+      setError("PDF veya DOCX dosyasi secilmeden dokuman gonderilemez.");
+      return;
+    }
+
     let activeSession = session;
     if (!activeSession?.token) {
       activeSession = await startDemoSession();
@@ -188,9 +193,15 @@ export function DemoDashboard() {
     const documentId = `demo-${compactTimestamp(new Date())}`;
     const payload = {
       documentId,
-      fileName: selectedFile?.name || "demo-document.pdf",
+      fileName: selectedFile.name,
+      fileSize: selectedFile.size,
+      contentType: selectedFile.type || "application/octet-stream",
       source: source.trim() || "frontend-demo",
     };
+    const formData = new FormData();
+    formData.append("documentId", documentId);
+    formData.append("source", payload.source);
+    formData.append("file", selectedFile);
 
     resetTimeline();
     setLastDocumentId(documentId);
@@ -203,10 +214,9 @@ export function DemoDashboard() {
       const body = await request("/publish", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
           Authorization: `Bearer ${activeSession.token}`,
         },
-        body: JSON.stringify(payload),
+        body: formData,
       });
       setLastResponse({ action: "publish", request: payload, body });
       setStep("received", "ok");
@@ -372,7 +382,7 @@ function Dashboard({
         <form onSubmit={onSubmit}>
           <label className="block rounded-lg border border-dashed border-cyber-purple/50 bg-black/25 p-5 text-center transition hover:border-neon-cyan/70">
             <FileUp className="mx-auto h-12 w-12 text-cyber-purple" />
-            <span className="mt-4 block truncate text-sm font-semibold text-ink">{selectedFile?.name || "demo-document.pdf"}</span>
+            <span className="mt-4 block truncate text-sm font-semibold text-ink">{selectedFile?.name || "PDF veya DOCX dosyasi sec"}</span>
             <span className="mt-1 block text-xs text-muted">documentId: {demoDocumentId}</span>
             <input className="sr-only" type="file" accept=".pdf,.docx" onChange={(event) => setSelectedFile(event.target.files?.[0] || null)} />
           </label>
@@ -393,7 +403,7 @@ function Dashboard({
             </button>
           </div>
 
-          <button className="btn btn-primary mt-3 w-full" type="submit" disabled={busy === "publish"}>
+          <button className="btn btn-primary mt-3 w-full" type="submit" disabled={busy === "publish" || !selectedFile}>
             {busy === "publish" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
             Dokümanı event olarak gönder
           </button>

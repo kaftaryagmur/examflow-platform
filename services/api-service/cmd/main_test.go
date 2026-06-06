@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -70,6 +71,35 @@ func testBearerToken(t *testing.T) string {
 		t.Fatalf("token generation failed: %v", err)
 	}
 	return token
+}
+
+func multipartPublishBody(t *testing.T, fields map[string]string, fileName string, content []byte) (*bytes.Buffer, string) {
+	t.Helper()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatalf("write field failed: %v", err)
+		}
+	}
+
+	if fileName != "" {
+		part, err := writer.CreateFormFile(publishFileFieldName, fileName)
+		if err != nil {
+			t.Fatalf("create file part failed: %v", err)
+		}
+		if _, err := part.Write(content); err != nil {
+			t.Fatalf("write file content failed: %v", err)
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer failed: %v", err)
+	}
+
+	return body, writer.FormDataContentType()
 }
 
 func (f *fakePublisher) Publish(_ context.Context, msg *pubsub.Message) publishResult {
@@ -143,8 +173,10 @@ func (f *fakeExamStore) ListExams(context.Context, string) ([]Exam, error) {
 	return f.exams, nil
 }
 
-func TestPublishRequiresDocumentID(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/publish", bytes.NewBufferString(`{"fileName":"notes.pdf"}`))
+func TestPublishRequiresFile(t *testing.T) {
+	body, contentType := multipartPublishBody(t, map[string]string{"documentId": "doc-42"}, "", nil)
+	req := httptest.NewRequest(http.MethodPost, "/publish", body)
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
 	rec := httptest.NewRecorder()
 
@@ -156,7 +188,13 @@ func TestPublishRequiresDocumentID(t *testing.T) {
 }
 
 func TestPublishReturnsAcceptedResponse(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/publish", bytes.NewBufferString(`{"documentId":"doc-42","fileName":"week1.pdf","source":"web"}`))
+	fileContent := []byte("%PDF-1.4 sample content")
+	requestBody, contentType := multipartPublishBody(t, map[string]string{
+		"documentId": "doc-42",
+		"source":     "web",
+	}, "week1.pdf", fileContent)
+	req := httptest.NewRequest(http.MethodPost, "/publish", requestBody)
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
 	rec := httptest.NewRecorder()
 
@@ -178,6 +216,12 @@ func TestPublishReturnsAcceptedResponse(t *testing.T) {
 	if !bytes.Contains(fake.lastPayload, []byte(`"documentId":"doc-42"`)) {
 		t.Fatalf("expected payload to include documentId, got %s", string(fake.lastPayload))
 	}
+	if !bytes.Contains(fake.lastPayload, []byte(`"fileName":"week1.pdf"`)) {
+		t.Fatalf("expected payload to include fileName, got %s", string(fake.lastPayload))
+	}
+	if !bytes.Contains(fake.lastPayload, []byte(`"fileSize":23`)) {
+		t.Fatalf("expected payload to include fileSize, got %s", string(fake.lastPayload))
+	}
 	if !bytes.Contains(fake.lastPayload, []byte(`"userId"`)) {
 		t.Fatalf("expected payload to include userId, got %s", string(fake.lastPayload))
 	}
@@ -187,13 +231,24 @@ func TestPublishReturnsAcceptedResponse(t *testing.T) {
 	if documents.documents[0].DocumentID != "doc-42" {
 		t.Fatalf("expected persisted documentId doc-42, got %q", documents.documents[0].DocumentID)
 	}
+	if documents.documents[0].FileName != "week1.pdf" {
+		t.Fatalf("expected persisted fileName week1.pdf, got %q", documents.documents[0].FileName)
+	}
+	if documents.documents[0].FileSize != int64(len(fileContent)) {
+		t.Fatalf("expected persisted fileSize %d, got %d", len(fileContent), documents.documents[0].FileSize)
+	}
+	if documents.documents[0].ContentType == "" {
+		t.Fatal("expected persisted contentType")
+	}
 	if documents.documents[0].Status != documentStatusUploaded {
 		t.Fatalf("expected uploaded status, got %q", documents.documents[0].Status)
 	}
 }
 
 func TestPublishRequiresBearerToken(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/publish", bytes.NewBufferString(`{"documentId":"doc-42","fileName":"week1.pdf","source":"web"}`))
+	body, contentType := multipartPublishBody(t, map[string]string{"documentId": "doc-42", "source": "web"}, "week1.pdf", []byte("%PDF-1.4 sample content"))
+	req := httptest.NewRequest(http.MethodPost, "/publish", body)
+	req.Header.Set("Content-Type", contentType)
 	rec := httptest.NewRecorder()
 
 	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, nil, testAuth, true).ServeHTTP(rec, req)
@@ -204,7 +259,9 @@ func TestPublishRequiresBearerToken(t *testing.T) {
 }
 
 func TestPublishRequiresDocumentStore(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/publish", bytes.NewBufferString(`{"documentId":"doc-42","fileName":"week1.pdf","source":"web"}`))
+	body, contentType := multipartPublishBody(t, map[string]string{"documentId": "doc-42", "source": "web"}, "week1.pdf", []byte("%PDF-1.4 sample content"))
+	req := httptest.NewRequest(http.MethodPost, "/publish", body)
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
 	rec := httptest.NewRecorder()
 
@@ -216,7 +273,9 @@ func TestPublishRequiresDocumentStore(t *testing.T) {
 }
 
 func TestPublishReturnsErrorWhenDocumentPersistenceFails(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/publish", bytes.NewBufferString(`{"documentId":"doc-42","fileName":"week1.pdf","source":"web"}`))
+	body, contentType := multipartPublishBody(t, map[string]string{"documentId": "doc-42", "source": "web"}, "week1.pdf", []byte("%PDF-1.4 sample content"))
+	req := httptest.NewRequest(http.MethodPost, "/publish", body)
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
 	rec := httptest.NewRecorder()
 
@@ -225,6 +284,33 @@ func TestPublishReturnsErrorWhenDocumentPersistenceFails(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+}
+
+func TestPublishRejectsJSONBody(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/publish", bytes.NewBufferString(`{"documentId":"doc-42","fileName":"week1.pdf","source":"web"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
+	rec := httptest.NewRecorder()
+
+	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, nil, testAuth, true).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestPublishRejectsUnsupportedFileExtension(t *testing.T) {
+	body, contentType := multipartPublishBody(t, map[string]string{"documentId": "doc-42", "source": "web"}, "notes.txt", []byte("plain text"))
+	req := httptest.NewRequest(http.MethodPost, "/publish", body)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
+	rec := httptest.NewRecorder()
+
+	newServer(context.Background(), nil, "mock", nil, nil, &fakeDocumentStore{}, nil, testAuth, true).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
 	}
 }
 

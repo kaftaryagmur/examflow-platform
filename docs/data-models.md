@@ -34,6 +34,8 @@ exams
 | `userId` | ObjectId | Dokuman sahibi kullanici |
 | `documentId` | string | Event akisi ve dis istemciler icin dokuman referansi |
 | `fileName` | string | Yuklenen dosya adi |
+| `fileSize` | int64 | Multipart upload ile gelen dosya boyutu |
+| `contentType` | string | Multipart upload ile gelen veya API tarafinda tespit edilen MIME tipi |
 | `source` | string | `manual`, `demo` gibi kaynak bilgisi |
 | `status` | string | `uploaded`, `processing`, `processed`, `failed` |
 | `processingInfo` | string | Opsiyonel isleme sonucu veya hata ozeti |

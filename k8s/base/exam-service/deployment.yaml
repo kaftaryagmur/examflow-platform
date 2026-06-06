@@ -61,6 +61,16 @@ spec:
                   key: MONGODB_PASSWORD
             - name: MONGODB_URI
               value: "mongodb://$(MONGODB_USERNAME):$(MONGODB_PASSWORD)@$(MONGODB_HOST):$(MONGODB_PORT)/$(MONGODB_DATABASE)?authSource=admin"
+            - name: ANTHROPIC_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: examflow-config
+                  key: ANTHROPIC_MODEL
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: examflow-secret
+                  key: ANTHROPIC_API_KEY
           readinessProbe:
             httpGet:
               path: /health

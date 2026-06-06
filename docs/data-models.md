@@ -57,8 +57,13 @@ exams
 | `title` | string | Opsiyonel sinav basligi |
 | `validationResult` | string | `valid`, `invalid`, `passed`, `failed` |
 | `status` | string | `draft`, `processing`, `validated`, `published`, `failed` |
+| `questions` | array | AI uretimi coktan secmeli sorular (`question`, `options`, `correctAnswer`, `explanation`, `difficulty`, `topic`) |
+| `infoCards` | array | AI uretimi calisma kartlari (`title`, `summary`, `keyPoints`) |
+| `generationModel` | string | Iceriği ureten Claude model ID'si (or. `claude-opus-4-8`) |
 | `createdAt` | string | UTC RFC3339 olusturma zamani |
 | `updatedAt` | string | UTC RFC3339 guncelleme zamani |
+
+`questions[]` elemanlari su alt alanlari tasir: `question` (metin), `options` (4 secenek), `correctAnswer` (A/B/C/D), `explanation`, `difficulty` (`easy`/`medium`/`hard`), `topic`. `infoCards[]` elemanlari ise `title`, `summary` ve `keyPoints` (string listesi) tasir.
 
 ## Relations
 
@@ -96,6 +101,20 @@ GET /exams     -> exams.find({ userId: JWT userId })
 ```
 
 Bu endpointler sayesinde document ve exam kayitlari yalnizca event loglari ile degil, MongoDB collection'lari uzerinden create/read akisiyle de dogrulanabilir.
+
+## Exam Content Generation Flow
+
+SCRUM-90 kapsaminda exam-service, `validated` durumuna gecen examlar icin Anthropic Claude API'sini cagirip yapilandirilmis soru ve bilgi kartlari uretir.
+
+```text
+exam.validation.completed (valid)
+-> exam-service documents.findOne({ documentId, userId })   # fileName/source bağlamı
+-> Anthropic Messages API (tool use: submit_exam_content)
+-> exams.questions[] + exams.infoCards[] + exams.generationModel
+-> GET /exams (frontend exam detail viewer gercek veriyi gosterir)
+```
+
+Pipeline dokuman metnini tasimadigi icin uretim, dokuman metadata bilgisine (dosya adi/kaynak) dayanir. `ANTHROPIC_API_KEY` tanimli degilse veya uretim hata verirse exam yine kaydedilir (soru alanlari bos kalir); bu sayede event zinciri hicbir zaman bloke olmaz. Model `ANTHROPIC_MODEL` ile yapilandirilir, varsayilan `claude-opus-4-8`.
 
 SCRUM-88 ile document binary icerigi GridFS icinde saklanir ve asagidaki protected endpoint ile okunur:
 

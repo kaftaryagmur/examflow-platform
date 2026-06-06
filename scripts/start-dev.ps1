@@ -95,6 +95,18 @@ Write-Host "Fetching cluster credentials"
 Write-Host "Applying Kubernetes manifests: $K8sOverlay"
 kubectl apply -k $K8sOverlay
 
+Write-Host "Syncing ANTHROPIC_API_KEY from Secret Manager (if present)"
+$AnthropicSecretName = if ($env:ANTHROPIC_SECRET_NAME) { $env:ANTHROPIC_SECRET_NAME } else { "anthropic-api-key" }
+$AnthropicApiKey = & $Gcloud secrets versions access latest --secret=$AnthropicSecretName --project=$ProjectId
+if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($AnthropicApiKey)) {
+    $AnthropicApiKey = $AnthropicApiKey.Trim()
+    kubectl patch secret examflow-secret -n $Namespace --type merge -p "{`"stringData`":{`"ANTHROPIC_API_KEY`":`"$AnthropicApiKey`"}}"
+    kubectl rollout restart deployment/exam-service -n $Namespace
+    Write-Host "ANTHROPIC_API_KEY synced from Secret Manager into examflow-secret."
+} else {
+    Write-Host "Secret Manager secret '$AnthropicSecretName' not accessible; exam-service runs with AI generation disabled."
+}
+
 Write-Host "Waiting for workloads in namespace: $Namespace"
 kubectl rollout status deployment/api-service -n $Namespace --timeout=180s
 kubectl rollout status deployment/exam-service -n $Namespace --timeout=180s

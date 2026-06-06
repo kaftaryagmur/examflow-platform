@@ -124,6 +124,8 @@ SCRUM-32 kapsaminda `/publish` endpoint'i protected hale getirilir. JWT icindeki
 
 SCRUM-34 kapsaminda `/publish`, event yayinlamadan once MongoDB `documents` collection'inda `uploaded` durumunda kullaniciya ait bir dokuman kaydi olusturur. Bu sayede dokuman archive ekranlari icin kalici veri zemini hazirlanir.
 
+SCRUM-89 kapsaminda `/publish`, JSON body yerine `multipart/form-data` kabul eder. Istek `file` alaninda gercek `.pdf` veya `.docx` dosyasini, `source` alaninda kaynak bilgisini ve opsiyonel `documentId` alanini birlikte tasir. API service dosya icerigini okur, uzanti/size/content-type kontrolu yapar ve MongoDB `documents` kaydina dosya metadata bilgisini yazar.
+
 SCRUM-40 kapsaminda API service, MongoDB uzerinden kullaniciya ait kalici `documents` ve `exams` kayitlarini okuyabilen protected endpointler sunar. Bu sayede document create/read ve exam create/read akislarinin veritabani uzerinden dogrulanmasi mumkun hale gelir.
 
 ## Lokal Testler
@@ -174,6 +176,30 @@ curl.exe http://127.0.0.1:8080/auth/me `
 ```
 
 Eksik, hatali veya expire olmus token durumunda API `401 Unauthorized` doner.
+
+## Document Upload Endpoint
+
+`/publish` protected endpoint'tir ve `multipart/form-data` bekler.
+
+Zorunlu alan:
+
+- `file`: `.pdf` veya `.docx`
+
+Opsiyonel alanlar:
+
+- `documentId`: verilmezse API service tarafinda uretilir
+- `source`: verilmezse `manual` kullanilir
+
+Ornek:
+
+```powershell
+$Token = "<login-response-token>"
+curl.exe -X POST http://127.0.0.1:8080/publish `
+  -H "Authorization: Bearer $Token" `
+  -F "documentId=doc-42" `
+  -F "source=web" `
+  -F "file=@C:\path\week1.pdf;type=application/pdf"
+```
 
 ## Persistence Endpointleri
 
@@ -464,11 +490,11 @@ Frontend ile:
 - `/health` kontrolu yapilabilir.
 - `/ready` kontrolu yapilabilir.
 - demo kullanici icin register/login akisi olusturulabilir.
-- `/publish` istegi gonderilebilir.
+- `/publish` ile gercek `.pdf` veya `.docx` dosyasi multipart olarak gonderilebilir.
 - `/documents` ve `/exams` kayitlari gorulebilir.
 - received, processing, validated, published ve failed state'leri takip edilebilir.
 
-Not: `/publish` protected endpoint oldugu icin once register/login akisi ile JWT alinmali ve istek `Authorization: Bearer <token>` header'i ile gonderilmelidir.
+Not: `/publish` protected endpoint oldugu icin once register/login akisi ile JWT alinmali ve istek `Authorization: Bearer <token>` header'i ile gonderilmelidir. Frontend, `Content-Type` header'ini elle set etmez; browser `FormData` icin multipart boundary bilgisini otomatik uretir.
 
 Frontend container image'i:
 

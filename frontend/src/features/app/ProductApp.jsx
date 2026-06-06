@@ -122,14 +122,24 @@ export function ProductApp() {
   async function submitAppDocument(event) {
     event.preventDefault();
     if (!session?.token) return;
+    if (!selectedFile) {
+      setError("PDF veya DOCX dosyasi secilmeden dokuman gonderilemez.");
+      return;
+    }
 
-    const fileName = selectedFile?.name || "ders-notu.pdf";
+    const fileName = selectedFile.name;
     const documentId = `app-${compactTimestamp(new Date())}`;
     const payload = {
       documentId,
       fileName,
+      fileSize: selectedFile.size,
+      contentType: selectedFile.type || "application/octet-stream",
       source: source.trim() || "app-dashboard",
     };
+    const formData = new FormData();
+    formData.append("documentId", documentId);
+    formData.append("source", payload.source);
+    formData.append("file", selectedFile);
 
     setBusy("publish");
     setError("");
@@ -148,9 +158,8 @@ export function ProductApp() {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.token}`,
-          "Content-Type": "application/json",
         },
-        body: JSON.stringify(payload),
+        body: formData,
       });
 
       setLastProcess((current) => ({
@@ -506,11 +515,11 @@ function DashboardPublishPanel({ busy, onSubmit, selectedFile, setSelectedFile, 
         </label>
 
         <div className="rounded-lg border border-space-line bg-black/25 p-4">
-          <p className="text-sm font-bold text-ink">{selectedFile?.name || "Dosya seçilmezse ders-notu.pdf adıyla demo kaydı gönderilir."}</p>
-          <p className="mt-1 text-xs leading-5 text-muted">Bu aşamada backend dosya içeriği yerine doküman metadata kaydını işler. Akış sonucu doküman ve sınav arşivinden takip edilir.</p>
+          <p className="text-sm font-bold text-ink">{selectedFile?.name || "PDF veya DOCX dosyasi sec"}</p>
+          <p className="mt-1 text-xs leading-5 text-muted">Backend dosyayi multipart olarak alir; uzanti, boyut ve icerik tipi metadata olarak kaydedilir. Akis sonucu dokuman ve sinav arsivinden takip edilir.</p>
         </div>
 
-        <button className="btn btn-primary w-full" type="submit" disabled={isPublishing}>
+        <button className="btn btn-primary w-full" type="submit" disabled={isPublishing || !selectedFile}>
           {isPublishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
           {isPublishing ? "Akış izleniyor" : "Dokümanı işle ve sonucu getir"}
         </button>

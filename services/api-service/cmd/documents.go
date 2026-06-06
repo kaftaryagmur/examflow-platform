@@ -15,14 +15,16 @@ const (
 )
 
 type Document struct {
-	ID         bson.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
-	UserID     bson.ObjectID `bson:"userId" json:"userId"`
-	DocumentID string        `bson:"documentId" json:"documentId"`
-	FileName   string        `bson:"fileName" json:"fileName"`
-	Source     string        `bson:"source" json:"source"`
-	Status     string        `bson:"status" json:"status"`
-	CreatedAt  string        `bson:"createdAt" json:"createdAt"`
-	UpdatedAt  string        `bson:"updatedAt" json:"updatedAt"`
+	ID          bson.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	UserID      bson.ObjectID `bson:"userId" json:"userId"`
+	DocumentID  string        `bson:"documentId" json:"documentId"`
+	FileName    string        `bson:"fileName" json:"fileName"`
+	FileSize    int64         `bson:"fileSize" json:"fileSize"`
+	ContentType string        `bson:"contentType" json:"contentType"`
+	Source      string        `bson:"source" json:"source"`
+	Status      string        `bson:"status" json:"status"`
+	CreatedAt   string        `bson:"createdAt" json:"createdAt"`
+	UpdatedAt   string        `bson:"updatedAt" json:"updatedAt"`
 }
 
 func buildDocumentRecord(req PublishRequest, userID string) (Document, error) {
@@ -33,14 +35,16 @@ func buildDocumentRecord(req PublishRequest, userID string) (Document, error) {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	return Document{
-		ID:         bson.NewObjectID(),
-		UserID:     userObjectID,
-		DocumentID: strings.TrimSpace(req.DocumentID),
-		FileName:   strings.TrimSpace(req.FileName),
-		Source:     strings.TrimSpace(req.Source),
-		Status:     documentStatusUploaded,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:          bson.NewObjectID(),
+		UserID:      userObjectID,
+		DocumentID:  strings.TrimSpace(req.DocumentID),
+		FileName:    strings.TrimSpace(req.FileName),
+		FileSize:    req.FileSize,
+		ContentType: strings.TrimSpace(req.ContentType),
+		Source:      strings.TrimSpace(req.Source),
+		Status:      documentStatusUploaded,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}, nil
 }
 

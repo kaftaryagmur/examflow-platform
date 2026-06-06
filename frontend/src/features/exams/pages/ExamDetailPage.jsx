@@ -1,9 +1,85 @@
-import { ArrowLeft, ClipboardList, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  BadgeCheck,
+  BookOpen,
+  Brain,
+  CheckCircle2,
+  ClipboardList,
+  FileText,
+  Hash,
+  Layers,
+  ListChecks,
+  Sparkles,
+} from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
 import { Badge } from "../../../components/status";
 import { displayStatus, parseRecordDate } from "../../../utils/format";
 import { ExamMeta } from "../components/ExamMeta";
+
+const EXAM_CONTRACT_PREVIEW = {
+  examId: "exam-...",
+  documentId: "doc-...",
+  questions: [
+    {
+      type: "multiple_choice",
+      question: "Dokümanın ana fikrini en iyi açıklayan seçenek hangisidir?",
+      options: ["A seçeneği", "B seçeneği", "C seçeneği", "D seçeneği"],
+      correctAnswer: "A",
+      explanation: "Doğru cevap, dokümandaki ana kavramla doğrudan eşleşir.",
+      difficulty: "medium",
+      topic: "Ana kavram",
+    },
+  ],
+  infoCards: [
+    {
+      title: "Temel kavram",
+      summary: "Dokümandan çıkarılan kısa çalışma notu.",
+      keyPoints: ["Önemli nokta", "Sınavda sorulabilecek detay"],
+    },
+  ],
+};
+
+const PREVIEW_QUESTIONS = [
+  {
+    question: "Dokümanın ana fikrini en iyi açıklayan seçenek hangisidir?",
+    options: [
+      "Dokümandaki temel kavramı ve amacı özetleyen seçenek",
+      "Yalnızca dosya formatını açıklayan seçenek",
+      "Konu dışı teknik ayrıntıya odaklanan seçenek",
+      "Dokümanda geçmeyen bir varsayımı anlatan seçenek",
+    ],
+    correctAnswer: "A",
+    explanation: "Gerçek AI çıktısı bağlandığında bu alan, doğru cevabın dokümandaki hangi bilgiye dayandığını gösterecek.",
+    difficulty: "medium",
+    topic: "Ana kavram",
+    isPreview: true,
+  },
+  {
+    question: "Bu dokümandan üretilecek sınavda hangi bilgi tipi öncelikli değerlendirilmelidir?",
+    options: ["Tanım ve kavram ilişkileri", "Dosya adı uzunluğu", "Tarayıcı sekmesi sayısı", "Kullanıcının cihaz çözünürlüğü"],
+    correctAnswer: "A",
+    explanation: "Bu kart, gerçek soru JSON yapısının arayüzde nasıl görüneceğini göstermek için kullanılır.",
+    difficulty: "easy",
+    topic: "Öğrenme çıktısı",
+    isPreview: true,
+  },
+];
+
+const PREVIEW_INFO_CARDS = [
+  {
+    title: "Özet kartı",
+    summary: "AI entegrasyonu tamamlandığında dokümandan çıkarılan kısa, tekrar edilebilir bilgi kartı burada yer alacak.",
+    keyPoints: ["Ana kavram", "İlişkili açıklama", "Sınavda kullanılabilecek ipucu"],
+    isPreview: true,
+  },
+  {
+    title: "Çalışma ipucu",
+    summary: "Öğrencinin sınava hazırlanırken önceliklendirmesi gereken kavramlar bu bölümde gösterilecek.",
+    keyPoints: ["Kritik tanımlar", "Karşılaştırmalı başlıklar"],
+    isPreview: true,
+  },
+];
 
 export function ExamDetailPage({ exams }) {
   const { examKey } = useParams();
@@ -26,6 +102,13 @@ export function ExamDetailPage({ exams }) {
     );
   }
 
+  const generatedQuestions = getGeneratedQuestions(exam);
+  const generatedInfoCards = getGeneratedInfoCards(exam);
+  const questionCards = generatedQuestions.length > 0 ? generatedQuestions : PREVIEW_QUESTIONS;
+  const infoCards = generatedInfoCards.length > 0 ? generatedInfoCards : PREVIEW_INFO_CARDS;
+  const hasGeneratedQuestions = generatedQuestions.length > 0;
+  const hasGeneratedInfoCards = generatedInfoCards.length > 0;
+
   return (
     <div className="grid gap-5">
       <section className="app-hero">
@@ -41,51 +124,316 @@ export function ExamDetailPage({ exams }) {
         <Badge tone={exam.status}>{displayStatus(exam.status || "recorded")}</Badge>
       </section>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(320px,0.8fr)_minmax(420px,1.2fr)]">
-        <section className="panel p-5">
-          <p className="label">Metadata</p>
-          <h3 className="section-title">Kayıt bilgileri</h3>
-          <dl className="mt-5 grid gap-3">
-            <ExamMeta label="examId" value={exam.examId || exam.id || "-"} />
-            <ExamMeta label="documentId" value={exam.documentId || "-"} />
-            <ExamMeta label="Validation" value={displayStatus(exam.validationResult || "-")} />
-            <ExamMeta label="Durum" value={displayStatus(exam.status || "recorded")} />
-            <ExamMeta label="Oluşturulma" value={parseRecordDate(exam.createdAt)} />
-            <ExamMeta label="Güncelleme" value={parseRecordDate(exam.updatedAt)} />
-          </dl>
-        </section>
+      <div className="grid gap-5 xl:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.28fr)]">
+        <aside className="grid content-start gap-5">
+          <section className="panel p-5">
+            <p className="label">Metadata</p>
+            <h3 className="section-title">Kayıt bilgileri</h3>
+            <dl className="mt-5 grid gap-3">
+              <ExamMeta label="examId" value={exam.examId || exam.id || "-"} />
+              <ExamMeta label="documentId" value={exam.documentId || "-"} />
+              <ExamMeta label="Validation" value={displayStatus(exam.validationResult || "-")} />
+              <ExamMeta label="Durum" value={displayStatus(exam.status || "recorded")} />
+              <ExamMeta label="Oluşturulma" value={parseRecordDate(exam.createdAt)} />
+              <ExamMeta label="Güncelleme" value={parseRecordDate(exam.updatedAt)} />
+            </dl>
+          </section>
 
-        <section className="panel glass-grid p-5">
-          <div className="mb-5 flex items-start justify-between gap-4">
-            <div>
-              <p className="label">AI destekli sınav çıktısı</p>
-              <h3 className="section-title">Soru kartları ve bilgi kartları</h3>
-              <p className="mt-2 text-sm leading-6 text-muted">
-                Bu alan ileride AI destekli sınav üretimi için kullanılacak. Çoktan seçmeli sorular, cevap anahtarı, açıklamalar ve NotebookLM benzeri bilgi kartları burada gösterilecek.
-              </p>
+          <GenerationReadiness
+            hasGeneratedInfoCards={hasGeneratedInfoCards}
+            hasGeneratedQuestions={hasGeneratedQuestions}
+            infoCardCount={generatedInfoCards.length}
+            questionCount={generatedQuestions.length}
+          />
+        </aside>
+
+        <main className="grid gap-5">
+          <section className="panel glass-grid p-5">
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="label">AI destekli sınav çıktısı</p>
+                <h3 className="section-title">Çoktan seçmeli soru kartları</h3>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
+                  Backend yapılandırılmış soru verisi döndürdüğünde bu alan gerçek sınav çıktısını gösterir. Henüz soru verisi yoksa arayüz, beklenen JSON contract yapısını örnek kartlarla gösterir.
+                </p>
+              </div>
+              <StatusPill isReady={hasGeneratedQuestions} readyText={`${generatedQuestions.length} soru hazır`} waitingText="Contract önizlemesi" />
             </div>
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan">
-              <Sparkles className="h-5 w-5" />
+
+            <div className="grid gap-4">
+              {questionCards.map((question, index) => (
+                <QuestionCard key={`${normalizeQuestion(question).question}-${index}`} index={index} question={question} />
+              ))}
             </div>
+          </section>
+
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.75fr)]">
+            <InfoCardsPanel cards={infoCards} hasGeneratedInfoCards={hasGeneratedInfoCards} />
+            <AnswerKeyPanel questions={questionCards} />
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <FutureExamCard title="Çoktan seçmeli sorular" text="AI çıktısı bağlandığında soru, seçenekler, doğru cevap ve açıklama bu alanda listelenecek." />
-            <FutureExamCard title="Bilgi kartları" text="Dokümandan çıkarılan ana kavramlar, özetler ve çalışma kartları burada gösterilecek." />
-            <FutureExamCard title="Zorluk ve konu etiketleri" text="Sorulara difficulty, topic ve learning outcome metadata alanları eklenebilecek." />
-            <FutureExamCard title="Cevap anahtarı" text="Öğrenciye veya eğitmene yönelik cevap anahtarı ve gerekçeli açıklama bölümü hazırlanacak." />
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.75fr)]">
+            <GenerationContractPanel exam={exam} />
+            <ExamQualityPanel hasGeneratedQuestions={hasGeneratedQuestions} questionCount={generatedQuestions.length} />
           </div>
-        </section>
+        </main>
       </div>
     </div>
   );
 }
 
-function FutureExamCard({ text, title }) {
+function GenerationReadiness({ hasGeneratedInfoCards, hasGeneratedQuestions, infoCardCount, questionCount }) {
+  const items = [
+    {
+      icon: ListChecks,
+      label: "Soru üretimi",
+      value: hasGeneratedQuestions ? `${questionCount} soru alındı` : "Backend çıktısı bekleniyor",
+      isReady: hasGeneratedQuestions,
+    },
+    {
+      icon: BookOpen,
+      label: "Bilgi kartları",
+      value: hasGeneratedInfoCards ? `${infoCardCount} kart alındı` : "AI contract içinde planlandı",
+      isReady: hasGeneratedInfoCards,
+    },
+    {
+      icon: Brain,
+      label: "AI entegrasyonu",
+      value: "Ayrı backend görevi olarak ele alınmalı",
+      isReady: false,
+    },
+  ];
+
+  return (
+    <section className="panel p-5">
+      <p className="label">Üretim durumu</p>
+      <h3 className="section-title">İçerik hazırlığı</h3>
+      <div className="mt-5 grid gap-3">
+        {items.map((item) => (
+          <div className="rounded-lg border border-space-line bg-black/20 p-4" key={item.label}>
+            <div className="flex items-start gap-3">
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border ${item.isReady ? "border-neon-green/40 bg-neon-green/10 text-neon-green" : "border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan"}`}>
+                <item.icon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-ink">{item.label}</p>
+                <p className="mt-1 break-words text-xs leading-5 text-muted">{item.value}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function QuestionCard({ index, question }) {
+  const normalized = normalizeQuestion(question);
+
   return (
     <article className="rounded-lg border border-space-line bg-black/25 p-4">
-      <p className="text-sm font-bold text-ink">{title}</p>
-      <p className="mt-2 text-xs leading-5 text-muted">{text}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/10 text-sm font-black text-neon-cyan">{index + 1}</span>
+            {normalized.isPreview && <Badge tone="warning">Önizleme</Badge>}
+            <Badge tone={normalized.difficulty}>{displayDifficulty(normalized.difficulty)}</Badge>
+          </div>
+          <h4 className="mt-3 break-words text-lg font-black text-ink">{normalized.question}</h4>
+          <p className="mt-2 flex items-center gap-2 text-xs font-bold uppercase text-muted">
+            <Hash className="h-4 w-4" />
+            {normalized.topic}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2">
+        {normalized.options.map((option, optionIndex) => {
+          const optionLetter = String.fromCharCode(65 + optionIndex);
+          const isCorrect = normalized.correctAnswer === optionLetter || normalized.correctAnswer === option || normalized.correctAnswer === optionIndex;
+          return (
+            <div className={`flex gap-3 rounded-lg border p-3 ${isCorrect ? "border-neon-green/40 bg-neon-green/10" : "border-space-line bg-black/20"}`} key={`${optionLetter}-${option}`}>
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-black ${isCorrect ? "bg-neon-green/20 text-neon-green" : "bg-white/5 text-muted"}`}>{optionLetter}</span>
+              <p className="min-w-0 break-words text-sm leading-6 text-ink">{option}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 rounded-lg border border-neon-cyan/25 bg-neon-cyan/10 p-3">
+        <p className="flex items-center gap-2 text-xs font-black uppercase text-neon-cyan">
+          <BadgeCheck className="h-4 w-4" />
+          Açıklama
+        </p>
+        <p className="mt-2 break-words text-sm leading-6 text-muted">{normalized.explanation}</p>
+      </div>
     </article>
   );
+}
+
+function InfoCardsPanel({ cards, hasGeneratedInfoCards }) {
+  return (
+    <section className="panel p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="label">Çalışma kartları</p>
+          <h3 className="section-title">Bilgi kartları</h3>
+        </div>
+        <StatusPill isReady={hasGeneratedInfoCards} readyText={`${cards.length} kart hazır`} waitingText="Önizleme" />
+      </div>
+      <div className="mt-5 grid gap-3">
+        {cards.map((card, index) => (
+          <article className="rounded-lg border border-space-line bg-black/25 p-4" key={`${card.title}-${index}`}>
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-neon-purple/40 bg-neon-purple/10 text-neon-purple">
+                <Layers className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="break-words text-sm font-black text-ink">{card.title || `Bilgi kartı ${index + 1}`}</p>
+                  {card.isPreview && <Badge tone="warning">Önizleme</Badge>}
+                </div>
+                <p className="mt-2 break-words text-sm leading-6 text-muted">{card.summary || card.text || "-"}</p>
+                {Array.isArray(card.keyPoints) && card.keyPoints.length > 0 && (
+                  <ul className="mt-3 grid gap-2">
+                    {card.keyPoints.map((point) => (
+                      <li className="flex gap-2 text-xs leading-5 text-muted" key={point}>
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-neon-green" />
+                        <span className="break-words">{point}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AnswerKeyPanel({ questions }) {
+  return (
+    <section className="panel p-5">
+      <p className="label">Değerlendirme</p>
+      <h3 className="section-title">Cevap anahtarı</h3>
+      <div className="mt-5 grid gap-2">
+        {questions.map((question, index) => {
+          const normalized = normalizeQuestion(question);
+          return (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-space-line bg-black/20 p-3" key={`${normalized.question}-${index}`}>
+              <span className="text-sm font-bold text-muted">Soru {index + 1}</span>
+              <span className="rounded-lg border border-neon-green/40 bg-neon-green/10 px-3 py-1 text-sm font-black text-neon-green">{normalized.correctAnswer || "-"}</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function GenerationContractPanel({ exam }) {
+  const contract = {
+    ...EXAM_CONTRACT_PREVIEW,
+    examId: exam.examId || exam.id || EXAM_CONTRACT_PREVIEW.examId,
+    documentId: exam.documentId || EXAM_CONTRACT_PREVIEW.documentId,
+  };
+
+  return (
+    <section className="panel p-5">
+      <div className="flex items-start gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan">
+          <Sparkles className="h-5 w-5" />
+        </div>
+        <div className="min-w-0">
+          <p className="label">Backend contract</p>
+          <h3 className="section-title">Beklenen AI çıktısı</h3>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            Exam Service ileride bu yapıda veri döndürdüğünde ekran otomatik olarak gerçek soru ve bilgi kartlarını gösterecek.
+          </p>
+        </div>
+      </div>
+      <pre className="mt-5 max-h-80 overflow-auto rounded-lg border border-space-line bg-black/40 p-4 text-xs leading-5 text-muted">
+        {JSON.stringify(contract, null, 2)}
+      </pre>
+    </section>
+  );
+}
+
+function ExamQualityPanel({ hasGeneratedQuestions, questionCount }) {
+  const checks = [
+    { label: "Çoktan seçmeli soru yapısı", isReady: hasGeneratedQuestions },
+    { label: "Doğru cevap alanı", isReady: hasGeneratedQuestions },
+    { label: "Açıklama ve konu etiketi", isReady: hasGeneratedQuestions },
+    { label: "AI üretimi backend tarafında bağlanacak", isReady: false },
+  ];
+
+  return (
+    <section className="panel p-5">
+      <p className="label">Kalite kontrol</p>
+      <h3 className="section-title">Sınav üretim kapsamı</h3>
+      <p className="mt-2 text-sm leading-6 text-muted">
+        Bu ekranda {questionCount > 0 ? `${questionCount} gerçek soru` : "henüz gerçek soru"} görüntüleniyor.
+      </p>
+      <div className="mt-5 grid gap-2">
+        {checks.map((check) => (
+          <div className="flex items-center gap-3 rounded-lg border border-space-line bg-black/20 p-3" key={check.label}>
+            <CheckCircle2 className={`h-4 w-4 shrink-0 ${check.isReady ? "text-neon-green" : "text-muted"}`} />
+            <span className="text-sm font-bold text-ink">{check.label}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function StatusPill({ isReady, readyText, waitingText }) {
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-black ${isReady ? "border-neon-green/40 bg-neon-green/10 text-neon-green" : "border-neon-amber/40 bg-neon-amber/10 text-neon-amber"}`}>
+      <FileText className="h-4 w-4" />
+      {isReady ? readyText : waitingText}
+    </span>
+  );
+}
+
+function getGeneratedQuestions(exam) {
+  const candidates = [
+    exam.questions,
+    exam.multipleChoiceQuestions,
+    exam.questionCards,
+    exam.items,
+    exam.content?.questions,
+    exam.generatedContent?.questions,
+    exam.result?.questions,
+  ];
+
+  return candidates.find((candidate) => Array.isArray(candidate) && candidate.length > 0) || [];
+}
+
+function getGeneratedInfoCards(exam) {
+  const candidates = [exam.infoCards, exam.cards, exam.studyCards, exam.content?.infoCards, exam.generatedContent?.infoCards, exam.result?.infoCards];
+
+  return candidates.find((candidate) => Array.isArray(candidate) && candidate.length > 0) || [];
+}
+
+function normalizeQuestion(question) {
+  const options = question.options || question.choices || question.answers || [];
+  return {
+    correctAnswer: question.correctAnswer ?? question.answer ?? question.correctOption ?? "-",
+    difficulty: question.difficulty || question.level || "medium",
+    explanation: question.explanation || question.rationale || "Açıklama alanı backend çıktısında bekleniyor.",
+    isPreview: Boolean(question.isPreview),
+    options: Array.isArray(options) && options.length > 0 ? options : ["Seçenek A", "Seçenek B", "Seçenek C", "Seçenek D"],
+    question: question.question || question.prompt || question.text || "Soru metni backend çıktısında bekleniyor.",
+    topic: question.topic || question.tag || question.learningOutcome || "Konu etiketi",
+  };
+}
+
+function displayDifficulty(difficulty) {
+  const value = String(difficulty || "").toLowerCase();
+  if (value === "easy") return "Kolay";
+  if (value === "hard") return "Zor";
+  if (value === "medium") return "Orta";
+  return difficulty || "-";
 }

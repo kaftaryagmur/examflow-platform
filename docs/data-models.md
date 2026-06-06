@@ -108,13 +108,18 @@ SCRUM-90 kapsaminda exam-service, `validated` durumuna gecen examlar icin Anthro
 
 ```text
 exam.validation.completed (valid)
--> exam-service documents.findOne({ documentId, userId })   # fileName/source bağlamı
+-> exam-service documents.findOne({ documentId, userId })   # fileId/contentType/fileName
+-> GridFS'ten binary indir (fileId)
 -> Anthropic Messages API (tool use: submit_exam_content)
+     PDF  -> document content block (base64) olarak gonderilir
+     DOCX -> stdlib ile metne cevrilip prompt'a eklenir
+     icerik yoksa -> metadata (dosya adi) fallback
+-> JSON validation (4 secenek, A-D cevap, difficulty enum)
 -> exams.questions[] + exams.infoCards[] + exams.generationModel
 -> GET /exams (frontend exam detail viewer gercek veriyi gosterir)
 ```
 
-Pipeline dokuman metnini tasimadigi icin uretim, dokuman metadata bilgisine (dosya adi/kaynak) dayanir. `ANTHROPIC_API_KEY` tanimli degilse veya uretim hata verirse exam yine kaydedilir (soru alanlari bos kalir); bu sayede event zinciri hicbir zaman bloke olmaz. Model `ANTHROPIC_MODEL` ile yapilandirilir, varsayilan `claude-opus-4-8`.
+SCRUM-91 kapsaminda uretim, dokumanin **gercek icerigine** dayanir: exam-service GridFS'ten dosya binary'sini indirir, PDF'i Claude'a native document block olarak gonderir, DOCX'i standart kutuphane ile metne cevirir. Icerik alinamazsa metadata (dosya adi) fallback'ine duser. Gecici hatalarda (429/5xx, ag hatasi) ve hatali/eksik AI ciktilarinda kisa backoff ile **retry** yapilir (en fazla 3 deneme); kalici hatalarda (400/401/403) yeniden denenmez. Donen JSON ek olarak dogrulanir (tam 4 secenek, A-D cevap, gecerli difficulty); hicbir gecerli soru kalmazsa cikti hatali sayilir. `ANTHROPIC_API_KEY` tanimli degilse veya tum denemeler basarisiz olursa exam yine kaydedilir (soru alanlari bos kalir); bu sayede event zinciri hicbir zaman bloke olmaz. Model `ANTHROPIC_MODEL` ile yapilandirilir, varsayilan `claude-opus-4-8`.
 
 SCRUM-88 ile document binary icerigi GridFS icinde saklanir ve asagidaki protected endpoint ile okunur:
 

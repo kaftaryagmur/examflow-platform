@@ -318,6 +318,74 @@ func TestPublishReturnsAcceptedResponse(t *testing.T) {
 	}
 }
 
+func TestPublishStoresGenerationPrefs(t *testing.T) {
+	body, contentType := multipartPublishBody(t, map[string]string{
+		"documentId":    "doc-42",
+		"source":        "web",
+		"questionCount": "8",
+		"difficulty":    "hard",
+		"infoCardCount": "4",
+		"focus":         "  hücre bölünmesi  ",
+	}, "week1.pdf", []byte("%PDF-1.4 sample content"))
+	req := httptest.NewRequest(http.MethodPost, "/publish", body)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
+	rec := httptest.NewRecorder()
+
+	documents := &fakeDocumentStore{}
+	newServer(context.Background(), nil, "mock", nil, nil, documents, nil, testAuth, true, &fakeFileStore{}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(documents.documents) != 1 {
+		t.Fatalf("expected one persisted document, got %d", len(documents.documents))
+	}
+	prefs := documents.documents[0].GenerationPrefs
+	if prefs.QuestionCount != 8 {
+		t.Fatalf("expected questionCount 8, got %d", prefs.QuestionCount)
+	}
+	if prefs.Difficulty != "hard" {
+		t.Fatalf("expected difficulty hard, got %q", prefs.Difficulty)
+	}
+	if prefs.InfoCardCount != 4 {
+		t.Fatalf("expected infoCardCount 4, got %d", prefs.InfoCardCount)
+	}
+	if prefs.Focus != "hücre bölünmesi" {
+		t.Fatalf("expected trimmed focus, got %q", prefs.Focus)
+	}
+}
+
+func TestPublishClampsAndDefaultsGenerationPrefs(t *testing.T) {
+	body, contentType := multipartPublishBody(t, map[string]string{
+		"documentId":    "doc-42",
+		"source":        "web",
+		"questionCount": "999",
+		"difficulty":    "impossible",
+	}, "week1.pdf", []byte("%PDF-1.4 sample content"))
+	req := httptest.NewRequest(http.MethodPost, "/publish", body)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
+	rec := httptest.NewRecorder()
+
+	documents := &fakeDocumentStore{}
+	newServer(context.Background(), nil, "mock", nil, nil, documents, nil, testAuth, true, &fakeFileStore{}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	prefs := documents.documents[0].GenerationPrefs
+	if prefs.QuestionCount != maxQuestionCount {
+		t.Fatalf("expected questionCount clamped to %d, got %d", maxQuestionCount, prefs.QuestionCount)
+	}
+	if prefs.Difficulty != difficultyMixed {
+		t.Fatalf("expected invalid difficulty to default to mixed, got %q", prefs.Difficulty)
+	}
+	if prefs.InfoCardCount != defaultInfoCardCount {
+		t.Fatalf("expected default infoCardCount %d, got %d", defaultInfoCardCount, prefs.InfoCardCount)
+	}
+}
+
 func TestPublishRequiresBearerToken(t *testing.T) {
 	body, contentType := multipartPublishBody(t, map[string]string{"documentId": "doc-42", "source": "web"}, "week1.pdf", []byte("%PDF-1.4 sample content"))
 	req := httptest.NewRequest(http.MethodPost, "/publish", body)

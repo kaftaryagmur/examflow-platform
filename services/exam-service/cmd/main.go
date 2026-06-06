@@ -330,6 +330,7 @@ func enrichExamWithGeneratedContent(exam *Exam, event validatedEvent) {
 			input.FileName = doc.FileName
 			input.Source = doc.Source
 			input.ContentType = doc.ContentType
+			input.Prefs = doc.GenerationPrefs
 			// Pull the real document content from GridFS so generation is based on
 			// the document itself, not just its file name. Best-effort: on failure
 			// the generator falls back to metadata.
@@ -350,15 +351,25 @@ func enrichExamWithGeneratedContent(exam *Exam, event validatedEvent) {
 		return
 	}
 
+	prefs := resolveGenerationPrefs(input.Prefs)
+	qualityStatus, qualityIssues := evaluateExamQuality(content, prefs)
+
 	exam.Questions = content.Questions
 	exam.InfoCards = content.InfoCards
 	exam.GenerationModel = generator.Model()
+	exam.GenerationPrefs = prefs
+	exam.QualityStatus = qualityStatus
+	exam.QualityIssues = qualityIssues
 	logKV(
 		"info", "exam-service", "exam content generated",
 		"document_id", event.DocumentID,
 		"question_count", len(content.Questions),
 		"info_card_count", len(content.InfoCards),
 		"used_document_content", len(input.FileContent) > 0,
+		"requested_question_count", prefs.QuestionCount,
+		"difficulty", prefs.Difficulty,
+		"quality_status", qualityStatus,
+		"quality_issue_count", len(qualityIssues),
 		"model", generator.Model(),
 	)
 }

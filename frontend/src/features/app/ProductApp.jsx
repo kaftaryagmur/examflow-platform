@@ -31,6 +31,10 @@ export function ProductApp() {
   const [exams, setExams] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [source, setSource] = useState("app-dashboard");
+  const [questionCount, setQuestionCount] = useState(5);
+  const [difficulty, setDifficulty] = useState("mixed");
+  const [infoCardCount, setInfoCardCount] = useState(3);
+  const [focus, setFocus] = useState("");
   const [lastProcess, setLastProcess] = useState(null);
   const [processNotice, setProcessNotice] = useState("");
   const [busy, setBusy] = useState("");
@@ -140,6 +144,10 @@ export function ProductApp() {
     formData.append("documentId", documentId);
     formData.append("source", payload.source);
     formData.append("file", selectedFile);
+    formData.append("questionCount", String(questionCount));
+    formData.append("difficulty", difficulty);
+    formData.append("infoCardCount", String(infoCardCount));
+    if (focus.trim()) formData.append("focus", focus.trim());
 
     setBusy("publish");
     setError("");
@@ -512,6 +520,50 @@ function DashboardPublishPanel({ busy, onSubmit, selectedFile, setSelectedFile, 
         <label className="block">
           <span className="label">Kaynak etiketi</span>
           <input className="field mt-1" value={source} onChange={(event) => setSource(event.target.value)} placeholder="app-dashboard" />
+        </label>
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          <label className="block">
+            <span className="label">Soru sayısı</span>
+            <input
+              className="field mt-1"
+              type="number"
+              min={1}
+              max={20}
+              value={questionCount}
+              onChange={(event) => setQuestionCount(Number(event.target.value))}
+            />
+          </label>
+          <label className="block">
+            <span className="label">Zorluk</span>
+            <select className="field mt-1" value={difficulty} onChange={(event) => setDifficulty(event.target.value)}>
+              <option value="mixed">Karışık</option>
+              <option value="easy">Kolay</option>
+              <option value="medium">Orta</option>
+              <option value="hard">Zor</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="label">Bilgi kartı sayısı</span>
+            <input
+              className="field mt-1"
+              type="number"
+              min={0}
+              max={10}
+              value={infoCardCount}
+              onChange={(event) => setInfoCardCount(Number(event.target.value))}
+            />
+          </label>
+        </div>
+
+        <label className="block">
+          <span className="label">Odak / talimat (opsiyonel)</span>
+          <input
+            className="field mt-1"
+            value={focus}
+            onChange={(event) => setFocus(event.target.value)}
+            placeholder="örn. yalnızca hücre bölünmesi konusuna odaklan"
+          />
         </label>
 
         <div className="rounded-lg border border-space-line bg-black/25 p-4">

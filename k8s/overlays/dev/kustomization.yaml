@@ -12,5 +12,5 @@ images:
     newTag: latest
   - name: europe-west1-docker.pkg.dev/project-ae272ac8-a64f-4afa-8b7/examflow-images/examflow-worker
     newTag: latest
-  - name: europe-west1-docker.pkg.dev/project-ae272ac8-a64f-4afa-8b7/examflow-images/examflow-demo-ui
+  - name: europe-west1-docker.pkg.dev/project-ae272ac8-a64f-4afa-8b7/examflow-images/examflow-frontend
     newTag: latest

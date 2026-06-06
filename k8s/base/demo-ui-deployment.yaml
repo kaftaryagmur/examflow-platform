@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: demo-ui
-          image: europe-west1-docker.pkg.dev/project-ae272ac8-a64f-4afa-8b7/examflow-images/examflow-demo-ui:latest
+          image: europe-west1-docker.pkg.dev/project-ae272ac8-a64f-4afa-8b7/examflow-images/examflow-frontend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

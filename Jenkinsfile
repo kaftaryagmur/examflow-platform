@@ -9,7 +9,7 @@ pipeline {
         IMAGE_EXAM   = "examflow-exam"
         IMAGE_VALIDATION = "examflow-validation"
         IMAGE_WORKER = "examflow-worker"
-        IMAGE_DEMO_UI = "examflow-demo-ui"
+        IMAGE_FRONTEND = "examflow-frontend"
         CLUSTER_NAME = "examflow-cluster"
         NAMESPACE    = "examflow"
 
@@ -17,7 +17,7 @@ pipeline {
         EXAM_IMAGE_FULL   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_EXAM}"
         VALIDATION_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_VALIDATION}"
         WORKER_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_WORKER}"
-        DEMO_UI_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_DEMO_UI}"
+        FRONTEND_IMAGE_FULL = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_FRONTEND}"
         IMAGE_TAG         = "${BUILD_NUMBER}"
     }
 
@@ -191,7 +191,7 @@ pipeline {
             }
         }
 
-        stage('Build Demo UI Image') {
+        stage('Build Frontend Image') {
             when {
                 anyOf {
                     branch 'develop'
@@ -200,11 +200,11 @@ pipeline {
                 }
             }
             steps {
-                dir('demo-ui') {
+                dir('frontend') {
                     sh '''
                         docker build \
-                          -t $DEMO_UI_IMAGE_FULL:$IMAGE_TAG \
-                          -t $DEMO_UI_IMAGE_FULL:latest .
+                          -t $FRONTEND_IMAGE_FULL:$IMAGE_TAG \
+                          -t $FRONTEND_IMAGE_FULL:latest .
                     '''
                 }
             }
@@ -239,8 +239,8 @@ pipeline {
                     docker push $VALIDATION_IMAGE_FULL:latest
                     docker push $WORKER_IMAGE_FULL:$IMAGE_TAG
                     docker push $WORKER_IMAGE_FULL:latest
-                    docker push $DEMO_UI_IMAGE_FULL:$IMAGE_TAG
-                    docker push $DEMO_UI_IMAGE_FULL:latest
+                    docker push $FRONTEND_IMAGE_FULL:$IMAGE_TAG
+                    docker push $FRONTEND_IMAGE_FULL:latest
                 '''
             }
         }

@@ -1,6 +1,6 @@
-# Demo UI
+# ExamFlow Frontend
 
-Bu klasor ExamFlow sunumu icin React + Vite + Tailwind tabanli demo arayuzunu barindirir.
+Bu klasor ExamFlow icin React + Vite + Tailwind tabanli frontend uygulamasini barindirir.
 
 ## Kapsam
 
@@ -20,10 +20,10 @@ API servisine port-forward ac:
 kubectl port-forward service/api-service 8080:80 -n examflow
 ```
 
-UI'i calistir:
+Frontend uygulamasini calistir:
 
 ```powershell
-cd demo-ui
+cd frontend
 npm install
 npm run dev
 ```
@@ -46,9 +46,9 @@ Vite dev proxy bu path'i `http://127.0.0.1:8080` adresine yonlendirir.
 ## Production container
 
 ```powershell
-cd demo-ui
-docker build -t examflow-demo-ui:local .
-docker run --rm -p 5500:8080 examflow-demo-ui:local
+cd frontend
+docker build -t examflow-frontend:local .
+docker run --rm -p 5500:8080 examflow-frontend:local
 ```
 
 Tarayicida:

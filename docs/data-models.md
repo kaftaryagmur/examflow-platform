@@ -36,6 +36,9 @@ exams
 | `fileName` | string | Yuklenen dosya adi |
 | `fileSize` | int64 | Multipart upload ile gelen dosya boyutu |
 | `contentType` | string | Multipart upload ile gelen veya API tarafinda tespit edilen MIME tipi |
+| `fileId` | ObjectId | MongoDB GridFS icindeki binary dosya referansi |
+| `storageBackend` | string | Dosya binary iceriginin saklandigi backend, su an `gridfs` |
+| `fileUrl` | string | Frontend viewer icin JWT korumali binary endpoint path'i |
 | `source` | string | `manual`, `demo` gibi kaynak bilgisi |
 | `status` | string | `uploaded`, `processing`, `processed`, `failed` |
 | `processingInfo` | string | Opsiyonel isleme sonucu veya hata ozeti |
@@ -93,3 +96,11 @@ GET /exams     -> exams.find({ userId: JWT userId })
 ```
 
 Bu endpointler sayesinde document ve exam kayitlari yalnizca event loglari ile degil, MongoDB collection'lari uzerinden create/read akisiyle de dogrulanabilir.
+
+SCRUM-88 ile document binary icerigi GridFS icinde saklanir ve asagidaki protected endpoint ile okunur:
+
+```text
+GET /documents/{documentId}/file -> documents.findOne({ userId: JWT userId, documentId }) -> GridFS fileId
+```
+
+Bu akista dosya endpoint'i `documents.userId` sahiplik kontrolu gecmeden GridFS stream acmaz.

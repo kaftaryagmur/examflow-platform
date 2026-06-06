@@ -10,6 +10,7 @@ Bu klasor ExamFlow icin React + Vite + Tailwind tabanli frontend uygulamasini ba
 - demo kullanici icin register/login akisi
 - JWT ile protected `/publish` endpoint'ine multipart dosya gonderme
 - `/documents` ve `/exams` kayitlarini listeleme
+- document detayinda JWT korumali dosya endpoint'inden blob viewer/indirme akisi
 - publish sonrasi received, processing, validated, published ve failed state takibi
 
 ## Lokal kullanim
@@ -85,3 +86,5 @@ http://<DEMO_UI_EXTERNAL_IP>/app/
 ```
 
 Not: UI secilen `.pdf` veya `.docx` dosyasini `FormData` ile `file` alaninda gonderir. `documentId` ve `source` ayni multipart isteginde tasinir; `Content-Type` header'i browser tarafindan otomatik uretilir.
+
+Document detail viewer, `fileUrl` degerini dogrudan iframe/href olarak kullanmaz. Frontend once stored JWT ile `/api/documents/{documentId}/file` endpoint'inden blob alir; onizleme, yeni sekme ve indirme aksiyonlari bu blob URL uzerinden calisir.

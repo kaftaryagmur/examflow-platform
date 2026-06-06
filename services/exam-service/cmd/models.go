@@ -39,7 +39,9 @@ type Document struct {
 	ID             bson.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
 	UserID         bson.ObjectID `bson:"userId" json:"userId"`
 	DocumentID     string        `bson:"documentId" json:"documentId"`
+	FileID         bson.ObjectID `bson:"fileId,omitempty" json:"fileId,omitempty"`
 	FileName       string        `bson:"fileName" json:"fileName"`
+	ContentType    string        `bson:"contentType,omitempty" json:"contentType,omitempty"`
 	Source         string        `bson:"source" json:"source"`
 	Status         string        `bson:"status" json:"status"`
 	ProcessingInfo string        `bson:"processingInfo,omitempty" json:"processingInfo,omitempty"`

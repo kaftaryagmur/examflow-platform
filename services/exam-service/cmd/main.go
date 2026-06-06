@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -78,9 +79,20 @@ type mongoDocumentReader struct {
 	collection *mongo.Collection
 }
 
+// documentFileReader downloads the raw uploaded document (PDF/DOCX) from GridFS
+// so the generator can work from the real content, not just metadata.
+type documentFileReader interface {
+	DownloadFile(ctx context.Context, fileID bson.ObjectID, max int64) ([]byte, error)
+}
+
+type mongoDocumentFileReader struct {
+	bucket *mongo.GridFSBucket
+}
+
 var (
 	exams     examStore = noopExamStore{}
 	documents documentReader
+	files     documentFileReader
 	generator questionGenerator
 )
 
@@ -104,6 +116,7 @@ func main() {
 		defer mongoClient.Disconnect(context.Background())
 		exams = mongoExamStore{collection: mongoDatabase.Collection(examsCollection)}
 		documents = mongoDocumentReader{collection: mongoDatabase.Collection(documentsCollection)}
+		files = mongoDocumentFileReader{bucket: mongoDatabase.GridFSBucket()}
 		logKV("info", "exam-service", "mongodb connection ready", "database", mongoDatabase.Name())
 	}
 
@@ -284,6 +297,19 @@ func (r mongoDocumentReader) FindByDocumentID(ctx context.Context, userID, docum
 	return document, nil
 }
 
+func (r mongoDocumentFileReader) DownloadFile(ctx context.Context, fileID bson.ObjectID, max int64) ([]byte, error) {
+	downloadCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	stream, err := r.bucket.OpenDownloadStream(downloadCtx, fileID)
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Close()
+
+	return io.ReadAll(io.LimitReader(stream, max))
+}
+
 // enrichExamWithGeneratedContent generates questions/info cards for a validated
 // exam. Generation is best-effort: any failure is logged and the exam is still
 // persisted (without questions) so the event pipeline is never blocked.
@@ -303,6 +329,18 @@ func enrichExamWithGeneratedContent(exam *Exam, event validatedEvent) {
 		} else {
 			input.FileName = doc.FileName
 			input.Source = doc.Source
+			input.ContentType = doc.ContentType
+			// Pull the real document content from GridFS so generation is based on
+			// the document itself, not just its file name. Best-effort: on failure
+			// the generator falls back to metadata.
+			if files != nil && !doc.FileID.IsZero() {
+				data, err := files.DownloadFile(ctx, doc.FileID, maxDocumentBytes+1)
+				if err != nil {
+					logKV("warn", "exam-service", "document file download failed, falling back to metadata", "document_id", event.DocumentID, "file_id", doc.FileID.Hex(), "error", err.Error())
+				} else {
+					input.FileContent = data
+				}
+			}
 		}
 	}
 
@@ -320,6 +358,7 @@ func enrichExamWithGeneratedContent(exam *Exam, event validatedEvent) {
 		"document_id", event.DocumentID,
 		"question_count", len(content.Questions),
 		"info_card_count", len(content.InfoCards),
+		"used_document_content", len(input.FileContent) > 0,
 		"model", generator.Model(),
 	)
 }

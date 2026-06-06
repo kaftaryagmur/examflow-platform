@@ -132,6 +132,8 @@ SCRUM-40 kapsaminda API service, MongoDB uzerinden kullaniciya ait kalici `docum
 
 SCRUM-90 kapsaminda exam-service, `validated` durumuna gecen examlar icin Anthropic Claude API'sini (Messages API, tool use ile yapilandirilmis JSON) cagirir ve uretilen `questions` ile `infoCards` alanlarini `exams` kaydina yazar. API anahtari `ANTHROPIC_API_KEY` olarak Kubernetes Secret uzerinden inject edilir; model `ANTHROPIC_MODEL` (varsayilan `claude-opus-4-8`) ile yapilandirilir. Anahtar yoksa veya uretim hata verirse exam soru alanlari bos sekilde yine kaydedilir, event zinciri bloke olmaz. `GET /exams` bu alanlari frontend exam detay ekranina dondurur.
 
+SCRUM-91 kapsaminda uretim, dokumanin gercek icerigine dayandirilir: exam-service `documents.fileId` uzerinden GridFS'ten dosya binary'sini indirir, PDF'i Claude'a native document content block (base64) olarak gonderir, DOCX'i standart kutuphane ile metne cevirir; icerik alinamazsa dosya adi metadata fallback'i kullanilir. Anthropic cagrisi gecici hatalarda (429/5xx, ag) ve hatali/eksik AI ciktilarinda kisa backoff ile yeniden denenir (en fazla 3 deneme; 400/401/403 gibi kalici hatalarda denenmez). Donen JSON, sema disinda ayrica dogrulanir (tam 4 secenek, A-D cevap, gecerli difficulty); gecersiz sorular elenir, hicbir gecerli soru kalmazsa cikti hatali sayilip retry/fallback devreye girer.
+
 ## Lokal Testler
 
 Her servis kendi Go modulu olarak test edilebilir:

@@ -260,6 +260,8 @@ pipeline {
                     kubectl kustomize .
 
                     echo "Service deployment manifests are rendered with build-specific image tags."
+                    echo "Remembering existing ANTHROPIC_API_KEY from Kubernetes secret (if present)"
+                    EXISTING_ANTHROPIC_API_KEY="$(kubectl get secret examflow-secret -n $NAMESPACE -o jsonpath='{.data.ANTHROPIC_API_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)"
 
                     kubectl apply -k .
 
@@ -270,6 +272,11 @@ pipeline {
                             -p "$(printf '{"stringData":{"ANTHROPIC_API_KEY":"%s"}}' "$ANTHROPIC_API_KEY")"
                         kubectl rollout restart deployment/exam-service -n $NAMESPACE
                         echo "ANTHROPIC_API_KEY synced from Secret Manager into examflow-secret."
+                    elif [ -n "$EXISTING_ANTHROPIC_API_KEY" ]; then
+                        kubectl patch secret examflow-secret -n $NAMESPACE --type merge \
+                            -p "$(printf '{"stringData":{"ANTHROPIC_API_KEY":"%s"}}' "$EXISTING_ANTHROPIC_API_KEY")"
+                        kubectl rollout restart deployment/exam-service -n $NAMESPACE
+                        echo "Secret Manager secret '$ANTHROPIC_SECRET_NAME' not accessible; reused existing Kubernetes ANTHROPIC_API_KEY."
                     else
                         echo "Secret Manager secret '$ANTHROPIC_SECRET_NAME' not accessible; exam-service runs with AI generation disabled."
                     fi

@@ -71,6 +71,14 @@ func main() {
 	}
 
 	ctx := context.Background()
+	activityClient, activityCollection, err := connectActivityMongo(ctx)
+	if err != nil {
+		logKV("warn", "worker-service", "mongodb activity connection unavailable", "error", err.Error())
+	} else if activityClient != nil {
+		defer activityClient.Disconnect(context.Background())
+		activity = mongoActivityRecorder{collection: activityCollection}
+		logKV("info", "worker-service", "activity recorder ready")
+	}
 
 	if projectID == "" || subscriptionID == "" {
 		logKV("info", "worker-service", "missing pubsub configuration, running in mock mode")
@@ -121,6 +129,7 @@ func main() {
 
 		start := time.Now()
 		logKV("info", "worker-service", "processing started", "event_id", event.EventID, "document_id", event.DocumentID, "event_type", event.EventType, "source", event.Source)
+		recordWorkerActivity(ctx, event, activityStatusProcessing, "document.processing", "Worker Service dokumani isliyor.", "")
 		result := processEvent(event)
 		resultPayload, _ := json.Marshal(result)
 
@@ -131,6 +140,7 @@ func main() {
 			"duration_ms", time.Since(start).Milliseconds(),
 			"result", string(resultPayload),
 		)
+		recordWorkerActivity(ctx, event, activityStatusProcessed, "document.processed", "Worker Service dokumani isledi.", "")
 
 		if err := publishProcessedEvent(ctx, pub, result); err != nil {
 			logKV(
@@ -139,6 +149,7 @@ func main() {
 				"document_id", result.DocumentID,
 				"error", err.Error(),
 			)
+			recordWorkerActivity(ctx, event, activityStatusFailed, "document.processing.failed", "Worker Service islenen dokuman eventini yayinlayamadi.", err.Error())
 			msg.Nack()
 			return
 		}

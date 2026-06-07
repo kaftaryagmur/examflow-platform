@@ -130,7 +130,7 @@ SCRUM-88 kapsaminda API service, yuklenen PDF/DOCX binary icerigini MongoDB Grid
 
 SCRUM-40 kapsaminda API service, MongoDB uzerinden kullaniciya ait kalici `documents` ve `exams` kayitlarini okuyabilen protected endpointler sunar. Bu sayede document create/read ve exam create/read akislarinin veritabani uzerinden dogrulanmasi mumkun hale gelir.
 
-SCRUM-90 kapsaminda exam-service, `validated` durumuna gecen examlar icin Anthropic Claude API'sini (Messages API, tool use ile yapilandirilmis JSON) cagirir ve uretilen `questions` ile `infoCards` alanlarini `exams` kaydina yazar. API anahtari `ANTHROPIC_API_KEY` olarak Kubernetes Secret uzerinden inject edilir; model `ANTHROPIC_MODEL` (varsayilan `claude-opus-4-8`) ile yapilandirilir. Anahtar yoksa veya uretim hata verirse exam soru alanlari bos sekilde yine kaydedilir, event zinciri bloke olmaz. `GET /exams` bu alanlari frontend exam detay ekranina dondurur.
+SCRUM-90 kapsaminda exam-service, `validated` durumuna gecen examlar icin Anthropic Claude API'sini (Messages API, tool use ile yapilandirilmis JSON) cagirir ve uretilen `questions` ile `infoCards` alanlarini `exams` kaydina yazar. API anahtari `ANTHROPIC_API_KEY` olarak Kubernetes Secret uzerinden inject edilir; model `ANTHROPIC_MODEL` ile yapilandirilir. Canli deploy varsayilani, soru uretiminde dusuk gecikme icin Haiku 4.5 (`claude-haiku-4-5-20251001`) olarak ayarlanir; daha yuksek muhakeme gerektiginde config uzerinden Sonnet/Opus'a alinabilir. Anahtar yoksa veya uretim hata verirse exam soru alanlari bos sekilde yine kaydedilir, event zinciri bloke olmaz. `GET /exams` bu alanlari frontend exam detay ekranina dondurur.
 
 SCRUM-91 kapsaminda uretim, dokumanin gercek icerigine dayandirilir: exam-service `documents.fileId` uzerinden GridFS'ten dosya binary'sini indirir, PDF'i Claude'a native document content block (base64) olarak gonderir, DOCX'i standart kutuphane ile metne cevirir; icerik alinamazsa dosya adi metadata fallback'i kullanilir. Anthropic cagrisi gecici hatalarda (429/5xx, ag) ve hatali/eksik AI ciktilarinda kisa backoff ile yeniden denenir (en fazla 3 deneme; 400/401/403 gibi kalici hatalarda denenmez). Donen JSON, sema disinda ayrica dogrulanir (tam 4 secenek, A-D cevap, gecerli difficulty); gecersiz sorular elenir, hicbir gecerli soru kalmazsa cikti hatali sayilip retry/fallback devreye girer.
 
@@ -508,6 +508,7 @@ Frontend ile:
 - demo kullanici icin register/login akisi olusturulabilir.
 - `/publish` ile gercek `.pdf` veya `.docx` dosyasi multipart olarak gonderilebilir.
 - `/documents` ve `/exams` kayitlari gorulebilir.
+- `/activity` ile kullaniciya ait kalici islem gecmisi, documentId filtresiyle okunabilir.
 - document detayinda `fileUrl` uzerinden JWT korumali dosya viewer/indirme akisi kullanilabilir.
 - received, processing, validated, published ve failed state'leri takip edilebilir.
 

@@ -188,8 +188,12 @@ func main() {
 			documents = mongoDocumentStore{collection: mongoDB.database.Collection(documentsCollection)}
 			files = mongoDocumentFileStore{bucket: mongoDB.database.GridFSBucket()}
 			exams = mongoExamStore{collection: mongoDB.database.Collection(examsCollection)}
+			activities = mongoActivityStore{collection: mongoDB.database.Collection(activityEventsCollection)}
 			if err := ensureUserIndexes(ctx, users); err != nil {
 				logKV("warn", "api-service", "mongodb user index setup failed", "database", db.Name(), "error", err.Error())
+			}
+			if err := ensureActivityIndexes(ctx, activities); err != nil {
+				logKV("warn", "api-service", "mongodb activity index setup failed", "database", db.Name(), "error", err.Error())
 			}
 		}
 	}
@@ -298,6 +302,14 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			http.Error(w, "document persistence failed", http.StatusInternalServerError)
 			return
 		}
+		recordPublishActivity(
+			r.Context(),
+			event,
+			activityStatusReceived,
+			"document.received",
+			"Dokuman alindi ve MongoDB dokuman kaydi olusturuldu.",
+			"",
+		)
 
 		logKV(
 			"info", "api-service", "request received",
@@ -313,12 +325,21 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 		payload, err := json.Marshal(event)
 		if err != nil {
 			logKV("error", "api-service", "event marshal failed", "endpoint", "/publish", "event_id", event.EventID, "document_id", event.DocumentID, "error", err.Error())
+			recordPublishActivity(r.Context(), event, activityStatusFailed, "document.publish.failed", "Dokuman eventi olusturulamadi.", err.Error())
 			http.Error(w, "could not create event payload", http.StatusInternalServerError)
 			return
 		}
 
 		if pub == nil {
 			logKV("info", "api-service", "mock event published", "endpoint", "/publish", "event_id", event.EventID, "document_id", event.DocumentID, "payload", string(payload))
+			recordPublishActivity(
+				r.Context(),
+				event,
+				activityStatusPublished,
+				"document.published",
+				"Dokuman eventi mock modda yayinlandi.",
+				"",
+			)
 			writeJSON(w, http.StatusOK, PublishResponse{
 				Status: "accepted",
 				Mode:   mode,
@@ -331,11 +352,20 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 		messageID, err := pub.Publish(ctx, &pubsub.Message{Data: payload}).Get(ctx)
 		if err != nil {
 			logKV("error", "api-service", "publish failed", "endpoint", "/publish", "event_id", event.EventID, "document_id", event.DocumentID, "error", err.Error())
+			recordPublishActivity(r.Context(), event, activityStatusFailed, "document.publish.failed", "Dokuman eventi Pub/Sub kuyruguna gonderilemedi.", err.Error())
 			http.Error(w, "publish failed", http.StatusInternalServerError)
 			return
 		}
 
 		logKV("info", "api-service", "event published", "endpoint", "/publish", "event_id", event.EventID, "document_id", event.DocumentID, "message_id", messageID)
+		recordPublishActivity(
+			r.Context(),
+			event,
+			activityStatusPublished,
+			"document.published",
+			"Dokuman eventi Pub/Sub kuyruguna gonderildi.",
+			"",
+		)
 		writeJSON(w, http.StatusOK, PublishResponse{
 			Status:    "accepted",
 			MessageID: messageID,
@@ -465,10 +495,34 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 		writeJSON(w, http.StatusOK, map[string]any{"exams": records})
 	})
 
+	listActivitiesHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authPrincipalFromContext(r.Context())
+		if !ok {
+			http.Error(w, "auth context unavailable", http.StatusUnauthorized)
+			return
+		}
+		if activities == nil {
+			http.Error(w, "activity store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		records, err := activities.ListActivities(r.Context(), claims.UserID, r.URL.Query().Get("documentId"))
+		if err != nil {
+			logKV("error", "api-service", "activity read failed", "endpoint", "/activity", "user_id", claims.UserID, "error", err.Error())
+			http.Error(w, "activity read failed", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"activities": records})
+	})
+
 	if authConfigured {
 		mux.Handle("/documents", auth.RequireAuth(listDocumentsHandler))
 		mux.Handle("/documents/", auth.RequireAuth(documentFileHandler))
 		mux.Handle("/exams", auth.RequireAuth(listExamsHandler))
+		mux.Handle("/activity", auth.RequireAuth(listActivitiesHandler))
 	} else {
 		mux.HandleFunc("/documents", func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
@@ -477,6 +531,9 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
 		})
 		mux.HandleFunc("/exams", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
+		})
+		mux.HandleFunc("/activity", func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
 		})
 	}

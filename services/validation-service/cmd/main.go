@@ -73,9 +73,19 @@ func main() {
 		port = "8080"
 	}
 
+	ctx := context.Background()
+	activityClient, activityCollection, err := connectActivityMongo(ctx)
+	if err != nil {
+		logKV("warn", "validation-service", "mongodb activity connection unavailable", "error", err.Error())
+	} else if activityClient != nil {
+		defer activityClient.Disconnect(context.Background())
+		activity = mongoActivityRecorder{collection: activityCollection}
+		logKV("info", "validation-service", "activity recorder ready")
+	}
+
 	handler := newServer()
 
-	go startConsumer(context.Background(), projectID, subscriptionID, validatedTopicID)
+	go startConsumer(ctx, projectID, subscriptionID, validatedTopicID)
 
 	logKV("info", "validation-service", "listening", "port", port)
 	if err := http.ListenAndServe(":"+port, handler); err != nil {
@@ -154,12 +164,19 @@ func startConsumer(ctx context.Context, projectID, subscriptionID, validatedTopi
 			"event_type", event.EventType,
 			"timestamp", event.Timestamp,
 		)
+		recordProcessedActivity(ctx, event, activityStatusProcessing, "document.validation.processing", "Validation Service dokumani dogruluyor.", "")
 
 		result := validateDocument(event)
 		logKV("info", "validation-service", "validation completed", "event_id", result.EventID, "validation_result", result.Status, "document_id", result.DocumentID)
+		if result.Status == "valid" {
+			recordValidationActivity(ctx, result, activityStatusValidated, "document.validated", "Dokuman dogrulandi.", "")
+		} else {
+			recordValidationActivity(ctx, result, activityStatusFailed, "document.validation.failed", "Dokuman dogrulamadan gecemedi.", "documentId eksik veya gecersiz")
+		}
 
 		if err := publishValidatedEvent(ctx, pub, result); err != nil {
 			logKV("error", "validation-service", "validated event publish failed", "event_id", result.EventID, "document_id", result.DocumentID, "error", err.Error())
+			recordValidationActivity(ctx, result, activityStatusFailed, "document.validation.publish.failed", "Validation sonucu Pub/Sub kuyruguna gonderilemedi.", err.Error())
 			msg.Nack()
 			return
 		}

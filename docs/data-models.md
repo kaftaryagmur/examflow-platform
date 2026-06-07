@@ -8,6 +8,7 @@ SCRUM-27 kapsaminda temel domain modelleri MongoDB collection yapisina gore tani
 users
 documents
 exams
+activity_events
 ```
 
 ## User
@@ -69,12 +70,31 @@ exams
 
 `questions[]` elemanlari su alt alanlari tasir: `question` (metin), `options` (4 secenek), `correctAnswer` (A/B/C/D), `explanation`, `difficulty` (`easy`/`medium`/`hard`), `topic`. `infoCards[]` elemanlari ise `title`, `summary` ve `keyPoints` (string listesi) tasir. `generationPrefs` ise kullanicinin upload sirasinda sectigi `questionCount`, `difficulty` (`easy`/`medium`/`hard`/`mixed`), `infoCardCount` ve serbest `focus` alanlarini tasir.
 
+## Activity Event
+
+`activity_events` collection'i kullaniciya ait publish ve arka plan islem gecmisini kalici olarak tutar.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `_id` | ObjectId | MongoDB primary key |
+| `userId` | ObjectId | Event sahibi kullanici |
+| `documentId` | string | Eventin bagli oldugu dokuman referansi |
+| `eventId` | string | Pub/Sub zincirinde tasinan event correlation id |
+| `eventType` | string | `document.received`, `document.processed`, `document.validated`, `exam.generated` gibi olay tipi |
+| `status` | string | UI filtresi icin `received`, `published`, `processing`, `processed`, `validated`, `failed` |
+| `service` | string | Eventi yazan servis (`api-service`, `worker-service`, `validation-service`, `exam-service`) |
+| `message` | string | Kullaniciya okunabilir durum aciklamasi |
+| `error` | string | Opsiyonel hata detayi |
+| `createdAt` | string | UTC RFC3339 olusturma zamani |
+
 ## Relations
 
 ```text
 User 1 -> N Document
 User 1 -> N Exam
+User 1 -> N ActivityEvent
 Document 1 -> N Exam
+Document 1 -> N ActivityEvent
 ```
 
 MongoDB dokuman modeli kullanildigi icin iliskiler foreign key constraint ile degil, `ObjectId` referanslari ve uygulama seviyesindeki kontrol ile yonetilir. SCRUM-32 kapsaminda bu referanslar ownership kurallariyla guclendirilmistir.

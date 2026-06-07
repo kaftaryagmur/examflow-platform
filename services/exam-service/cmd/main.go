@@ -117,6 +117,7 @@ func main() {
 		exams = mongoExamStore{collection: mongoDatabase.Collection(examsCollection)}
 		documents = mongoDocumentReader{collection: mongoDatabase.Collection(documentsCollection)}
 		files = mongoDocumentFileReader{bucket: mongoDatabase.GridFSBucket()}
+		activity = mongoActivityRecorder{collection: mongoDatabase.Collection(activityEventsCollection)}
 		logKV("info", "exam-service", "mongodb connection ready", "database", mongoDatabase.Name())
 	}
 
@@ -228,10 +229,12 @@ func handleValidatedMessage(msg examMessage) {
 		"event_type", event.EventType,
 		"validation_result", event.ValidationResult,
 	)
+	recordExamActivity(context.Background(), event, activityStatusProcessing, "exam.processing", "Exam Service validation sonucunu aldi ve sinav kaydini hazirliyor.", "")
 
 	exam, err := buildExam(event)
 	if err != nil {
 		logKV("error", "exam-service", "exam lifecycle transition failed", "message_id", msg.ID(), "event_id", event.EventID, "document_id", event.DocumentID, "error", err.Error())
+		recordExamActivity(context.Background(), event, activityStatusFailed, "exam.lifecycle.failed", "Sinav yasam dongusu guncellenemedi.", err.Error())
 		msg.Nack()
 		return
 	}
@@ -242,8 +245,14 @@ func handleValidatedMessage(msg examMessage) {
 
 	if err := exams.Save(context.Background(), exam); err != nil {
 		logKV("error", "exam-service", "exam persistence failed", "message_id", msg.ID(), "event_id", event.EventID, "document_id", exam.DocumentID, "error", err.Error())
+		recordExamActivity(context.Background(), event, activityStatusFailed, "exam.persistence.failed", "Sinav kaydi MongoDB'ye yazilamadi.", err.Error())
 		msg.Nack()
 		return
+	}
+	if exam.Status == examStatusFailed {
+		recordExamActivity(context.Background(), event, activityStatusFailed, "exam.validation.failed", "Validation sonucu basarisiz oldugu icin sinav failed olarak kaydedildi.", exam.ValidationResult)
+	} else {
+		recordExamActivity(context.Background(), event, activityStatusValidated, "exam.validated", "Sinav kaydi olusturuldu ve goruntulenebilir hale geldi.", "")
 	}
 
 	logKV(
@@ -348,6 +357,7 @@ func enrichExamWithGeneratedContent(exam *Exam, event validatedEvent) {
 	content, err := generator.Generate(ctx, input)
 	if err != nil {
 		logKV("warn", "exam-service", "exam content generation failed, persisting without questions", "document_id", event.DocumentID, "error", err.Error())
+		recordExamActivity(context.Background(), event, activityStatusFailed, "exam.generation.failed", "AI soru ve bilgi karti uretimi basarisiz oldu; sinav kaydi bos icerikle saklanacak.", err.Error())
 		return
 	}
 
@@ -372,6 +382,7 @@ func enrichExamWithGeneratedContent(exam *Exam, event validatedEvent) {
 		"quality_issue_count", len(qualityIssues),
 		"model", generator.Model(),
 	)
+	recordExamActivity(context.Background(), event, activityStatusValidated, "exam.generated", "AI soru ve bilgi kartlari uretildi.", "")
 }
 
 func parseEventEnvelope(data []byte) (eventEnvelope, error) {

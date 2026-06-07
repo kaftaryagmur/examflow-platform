@@ -508,6 +508,7 @@ Frontend ile:
 - demo kullanici icin register/login akisi olusturulabilir.
 - `/publish` ile gercek `.pdf` veya `.docx` dosyasi multipart olarak gonderilebilir.
 - `/documents` ve `/exams` kayitlari gorulebilir.
+- `/activity` ile kullaniciya ait kalici islem gecmisi, documentId filtresiyle okunabilir.
 - document detayinda `fileUrl` uzerinden JWT korumali dosya viewer/indirme akisi kullanilabilir.
 - received, processing, validated, published ve failed state'leri takip edilebilir.
 

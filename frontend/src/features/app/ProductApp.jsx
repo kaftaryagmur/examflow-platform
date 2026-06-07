@@ -11,7 +11,7 @@ import {
   User,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { Link, Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 
 import { ArchiveList } from "../../components/archive";
 import { Alert, Badge, HealthRow } from "../../components/status";
@@ -29,6 +29,7 @@ export function ProductApp() {
   const [ready, setReady] = useState(null);
   const [documents, setDocuments] = useState([]);
   const [exams, setExams] = useState([]);
+  const [activities, setActivities] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [source, setSource] = useState("app-dashboard");
   const [questionCount, setQuestionCount] = useState(5);
@@ -71,25 +72,28 @@ export function ProductApp() {
   }
 
   async function loadArchive(token = session?.token, options = {}) {
-    if (!token) return { documents: [], exams: [] };
+    if (!token) return { documents: [], exams: [], activities: [] };
     if (!options.silent) {
       setBusy("archive");
       setError("");
     }
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [documentBody, examBody] = await Promise.all([
+      const [documentBody, examBody, activityBody] = await Promise.all([
         appRequest("/documents", { headers }),
         appRequest("/exams", { headers }),
+        appRequest("/activity", { headers }),
       ]);
       const nextDocuments = documentBody.documents || [];
       const nextExams = examBody.exams || [];
+      const nextActivities = activityBody.activities || [];
       setDocuments(nextDocuments);
       setExams(nextExams);
-      return { documents: nextDocuments, exams: nextExams };
+      setActivities(nextActivities);
+      return { documents: nextDocuments, exams: nextExams, activities: nextActivities };
     } catch (err) {
       setError(err.message);
-      return { documents: [], exams: [] };
+      return { documents: [], exams: [], activities: [] };
     } finally {
       if (!options.silent) {
         setBusy("");
@@ -247,6 +251,7 @@ export function ProductApp() {
     setSession(null);
     setDocuments([]);
     setExams([]);
+    setActivities([]);
     setLastProcess(null);
     setProcessNotice("");
     navigate("/app", { replace: true });
@@ -345,7 +350,7 @@ export function ProductApp() {
           <Route path="documents/:documentId" element={<DocumentDetailPage documents={documents} exams={exams} />} />
           <Route path="exams" element={<ExamArchivePage busy={busy} exams={exams} />} />
           <Route path="exams/:examKey" element={<ExamDetailPage exams={exams} />} />
-          <Route path="activity" element={<ActivityWorkspace documents={documents} exams={exams} />} />
+          <Route path="activity" element={<ActivityWorkspace activities={activities} />} />
           <Route path="*" element={<Navigate to="dashboard" replace />} />
         </Routes>
       </section>
@@ -723,32 +728,116 @@ function WorkspaceRecords({ empty, records, title }) {
   );
 }
 
-function ActivityWorkspace({ documents, exams }) {
-  const events = sortRecordsByDate([...documents, ...exams]);
+function ActivityWorkspace({ activities }) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const events = useMemo(() => sortRecordsByDate(activities), [activities]);
+  const statusOptions = useMemo(() => Array.from(new Set(activities.map((event) => event.status).filter(Boolean))).sort(), [activities]);
+  const filteredEvents = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return events.filter((event) => {
+      const searchable = [event.documentId, event.eventId, event.eventType, event.status, event.service, event.message, event.error].filter(Boolean).join(" ").toLowerCase();
+      const matchesQuery = !normalizedQuery || searchable.includes(normalizedQuery);
+      const matchesStatus = statusFilter === "all" || event.status === statusFilter;
+      return matchesQuery && matchesStatus;
+    });
+  }, [events, query, statusFilter]);
 
   return (
-    <section className="panel p-5">
-      <div className="mb-5">
-        <p className="label">İşlem geçmişi</p>
-        <h3 className="section-title">Son hareketler</h3>
-      </div>
-      {events.length ? (
-        <div className="grid gap-3">
-          {events.map((event) => (
-            <article key={event.id || `${event.documentId}-${event.updatedAt}`} className="rounded-lg border border-space-line bg-black/25 p-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="font-bold text-ink">{event.title || event.fileName || event.documentId}</p>
-                  <p className="mt-1 text-xs text-muted">{parseRecordDate(event.updatedAt || event.createdAt)}</p>
-                </div>
-                <Badge tone={event.status}>{displayStatus(event.status || "recorded")}</Badge>
-              </div>
-            </article>
-          ))}
+    <div className="grid gap-5">
+      <section className="app-hero">
+        <div>
+          <p className="label">Activity</p>
+          <h3 className="mt-2 text-3xl font-black text-ink">İşlem geçmişi</h3>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
+            API, Worker, Validation ve Exam servislerinden gelen kalıcı event kayıtları documentId üzerinden izlenir.
+          </p>
         </div>
-      ) : (
-        <p className="text-sm text-muted">Henüz işlem geçmişi yok.</p>
-      )}
-    </section>
+        <Badge tone={activities.length ? "ok" : "idle"}>{activities.length} olay</Badge>
+      </section>
+
+      <section className="panel p-5">
+        <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <p className="label">Arama ve filtreler</p>
+            <h3 className="section-title">Event geçmişi</h3>
+          </div>
+          <Badge tone={filteredEvents.length ? "ok" : "idle"}>{filteredEvents.length} sonuç</Badge>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+          <label>
+            <span className="label">documentId, event veya hata ara</span>
+            <input className="field mt-1" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="örn. app-2026, validation, failed" />
+          </label>
+          <label>
+            <span className="label">Durum</span>
+            <select className="field mt-1" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="all">Tüm durumlar</option>
+              {statusOptions.map((status) => (
+                <option key={status} value={status}>
+                  {displayStatus(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {filteredEvents.length ? (
+          <div className="mt-5 grid gap-3">
+            {filteredEvents.map((event) => (
+              <article key={event.id || `${event.eventId}-${event.eventType}-${event.createdAt}`} className="rounded-lg border border-space-line bg-black/25 p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-bold text-ink">{event.eventType || "activity.event"}</p>
+                      <Badge tone={event.status}>{displayStatus(event.status || "recorded")}</Badge>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-muted">{event.message || readableActivityMessage(event)}</p>
+                    {event.error ? <p className="mt-2 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{readableActivityError(event)}</p> : null}
+                    <div className="mt-3 grid gap-2 text-xs text-muted md:grid-cols-2">
+                      <p>
+                        <span className="font-bold text-ink">documentId:</span> <span className="break-all">{event.documentId || "-"}</span>
+                      </p>
+                      <p>
+                        <span className="font-bold text-ink">Servis:</span> {event.service || "-"}
+                      </p>
+                      <p>
+                        <span className="font-bold text-ink">eventId:</span> <span className="break-all">{event.eventId || "-"}</span>
+                      </p>
+                      <p>
+                        <span className="font-bold text-ink">Tarih:</span> {parseRecordDate(event.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                  {event.documentId ? (
+                    <Link className="btn btn-secondary shrink-0" to={`/app/documents/${encodeURIComponent(event.documentId)}`}>
+                      <FileText className="h-4 w-4" />
+                      Dokümana git
+                    </Link>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-5 text-sm text-muted">Henüz işlem geçmişi yok.</p>
+        )}
+      </section>
+    </div>
   );
+}
+
+function readableActivityMessage(event) {
+  if (event.status === "received") return "Doküman backend tarafından alındı.";
+  if (event.status === "published") return "Event Pub/Sub hattına yayınlandı.";
+  if (event.status === "processing") return "Arka plan servisi işlemi sürdürüyor.";
+  if (event.status === "processed") return "Doküman işleme adımı tamamlandı.";
+  if (event.status === "validated") return "Doğrulama ve sınav kaydı tamamlandı.";
+  if (event.status === "failed") return "İşlem sırasında hata oluştu.";
+  return "Activity kaydı oluşturuldu.";
+}
+
+function readableActivityError(event) {
+  return event.error || "İşlem sırasında hata oluştu.";
 }

@@ -60,6 +60,11 @@ type fakeExamStore struct {
 	err   error
 }
 
+type fakeActivityStore struct {
+	activities []ActivityEvent
+	err        error
+}
+
 var testAuth = authService{
 	secret: []byte("test-jwt-secret-with-enough-length"),
 	ttl:    time.Hour,
@@ -233,6 +238,39 @@ func (f *fakeExamStore) ListExams(context.Context, string) ([]Exam, error) {
 	return f.exams, nil
 }
 
+func (f *fakeActivityStore) CreateActivity(_ context.Context, event ActivityEvent) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.activities = append(f.activities, event)
+	return nil
+}
+
+func (f *fakeActivityStore) ListActivities(_ context.Context, _ string, documentID string) ([]ActivityEvent, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if documentID == "" {
+		return f.activities, nil
+	}
+	var filtered []ActivityEvent
+	for _, activity := range f.activities {
+		if activity.DocumentID == documentID {
+			filtered = append(filtered, activity)
+		}
+	}
+	return filtered, nil
+}
+
+func useActivityStore(t *testing.T, store activityStore) {
+	t.Helper()
+	previous := activities
+	activities = store
+	t.Cleanup(func() {
+		activities = previous
+	})
+}
+
 func TestPublishRequiresFile(t *testing.T) {
 	body, contentType := multipartPublishBody(t, map[string]string{"documentId": "doc-42"}, "", nil)
 	req := httptest.NewRequest(http.MethodPost, "/publish", body)
@@ -261,6 +299,8 @@ func TestPublishReturnsAcceptedResponse(t *testing.T) {
 	fake := &fakePublisher{result: fakePublishResult{id: "msg-123"}}
 	documents := &fakeDocumentStore{}
 	files := &fakeFileStore{}
+	activity := &fakeActivityStore{}
+	useActivityStore(t, activity)
 	newServer(context.Background(), fake, "pubsub", nil, nil, documents, nil, testAuth, true, files).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -315,6 +355,15 @@ func TestPublishReturnsAcceptedResponse(t *testing.T) {
 	}
 	if documents.documents[0].Status != documentStatusUploaded {
 		t.Fatalf("expected uploaded status, got %q", documents.documents[0].Status)
+	}
+	if len(activity.activities) != 2 {
+		t.Fatalf("expected received and published activity events, got %d", len(activity.activities))
+	}
+	if activity.activities[0].Status != activityStatusReceived {
+		t.Fatalf("expected first activity status received, got %q", activity.activities[0].Status)
+	}
+	if activity.activities[1].Status != activityStatusPublished {
+		t.Fatalf("expected second activity status published, got %q", activity.activities[1].Status)
 	}
 }
 
@@ -614,6 +663,61 @@ func TestListExamsRequiresStore(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
 	rec := httptest.NewRecorder()
 
+	newServer(context.Background(), nil, "mock", nil, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", rec.Code)
+	}
+}
+
+func TestListActivitiesReturnsPersistedRecords(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/activity?documentId=doc-42", nil)
+	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
+	rec := httptest.NewRecorder()
+
+	activity := &fakeActivityStore{activities: []ActivityEvent{
+		{
+			ID:         bson.NewObjectID(),
+			UserID:     bson.NewObjectID(),
+			DocumentID: "doc-42",
+			EventType:  "document.received",
+			Status:     activityStatusReceived,
+			Service:    "api-service",
+			Message:    "received",
+			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+		},
+		{
+			ID:         bson.NewObjectID(),
+			UserID:     bson.NewObjectID(),
+			DocumentID: "doc-99",
+			EventType:  "document.received",
+			Status:     activityStatusReceived,
+			Service:    "api-service",
+			Message:    "received",
+			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+		},
+	}}
+	useActivityStore(t, activity)
+
+	newServer(context.Background(), nil, "mock", nil, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"activities"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"documentId":"doc-42"`)) {
+		t.Fatalf("expected activity response for doc-42, got %s", rec.Body.String())
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`"documentId":"doc-99"`)) {
+		t.Fatalf("did not expect doc-99 activity in filtered response, got %s", rec.Body.String())
+	}
+}
+
+func TestListActivitiesRequiresStore(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/activity", nil)
+	req.Header.Set("Authorization", "Bearer "+testBearerToken(t))
+	rec := httptest.NewRecorder()
+
+	useActivityStore(t, nil)
 	newServer(context.Background(), nil, "mock", nil, nil, nil, nil, testAuth, true).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {

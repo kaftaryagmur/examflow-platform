@@ -55,6 +55,31 @@ export function ProductApp() {
     return parsed.body;
   }
 
+  function syncLastProcessFromArchive(nextDocuments, nextExams) {
+    setLastProcess((current) => {
+      const activeDocumentId = current?.documentId || current?.payload?.documentId;
+      if (!activeDocumentId) return current;
+
+      const documentRecord = nextDocuments.find((item) => item.documentId === activeDocumentId);
+      const examRecord = nextExams.find((item) => item.documentId === activeDocumentId);
+      if (!examRecord) return current;
+
+      const failed = isFailedExamRecord(examRecord);
+      if (!failed) {
+        setProcessNotice("Doküman işlendi ve sınav kaydı arşive düştü.");
+      }
+
+      return {
+        ...current,
+        document: documentRecord || current?.document,
+        exam: examRecord,
+        status: failed ? "failed" : "ready",
+        stage: failed ? "Sınav kaydı hata durumunda" : "Sonuçlar görüntülenebilir",
+        finishedAt: current?.finishedAt || new Date().toISOString(),
+      };
+    });
+  }
+
   async function refreshStatus() {
     setBusy("status");
     setError("");
@@ -90,6 +115,7 @@ export function ProductApp() {
       setDocuments(nextDocuments);
       setExams(nextExams);
       setActivities(nextActivities);
+      syncLastProcessFromArchive(nextDocuments, nextExams);
       return { documents: nextDocuments, exams: nextExams, activities: nextActivities };
     } catch (err) {
       setError(err.message);
@@ -102,18 +128,19 @@ export function ProductApp() {
   }
 
   async function waitForAppExamRecord(token, documentId) {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
       const archive = await loadArchive(token, { silent: true });
       const documentRecord = archive.documents.find((item) => item.documentId === documentId);
       const examRecord = archive.exams.find((item) => item.documentId === documentId);
+      const failed = isFailedExamRecord(examRecord);
 
       if (documentRecord || examRecord) {
         setLastProcess((current) => ({
           ...current,
           document: documentRecord || current?.document,
           exam: examRecord || current?.exam,
-          status: examRecord ? "ready" : "processing",
-          stage: examRecord ? "Sınav kaydı oluşturuldu" : "Doküman kaydı oluşturuldu",
+          status: examRecord ? (failed ? "failed" : "ready") : "processing",
+          stage: examRecord ? (failed ? "Sınav kaydı hata durumunda" : "Sınav kaydı oluşturuldu") : "Doküman kaydı oluşturuldu",
         }));
       }
 
@@ -121,7 +148,7 @@ export function ProductApp() {
         return { document: documentRecord, exam: examRecord };
       }
 
-      await delay(1200);
+      await delay(2000);
     }
 
     return { document: null, exam: null };
@@ -183,13 +210,14 @@ export function ProductApp() {
 
       const result = await waitForAppExamRecord(session.token, documentId);
       if (result.exam) {
-        setProcessNotice("Doküman işlendi ve sınav kaydı arşive düştü.");
+        const failed = isFailedExamRecord(result.exam);
+        setProcessNotice(failed ? "Sınav kaydı hata durumunda arşive düştü." : "Doküman işlendi ve sınav kaydı arşive düştü.");
         setLastProcess((current) => ({
           ...current,
           document: result.document || current?.document,
           exam: result.exam,
-          status: "ready",
-          stage: "Sonuçlar görüntülenebilir",
+          status: failed ? "failed" : "ready",
+          stage: failed ? "Sınav kaydı hata durumunda" : "Sonuçlar görüntülenebilir",
           finishedAt: new Date().toISOString(),
         }));
       } else {
@@ -266,6 +294,16 @@ export function ProductApp() {
       loadArchive(session.token);
     }
   }, [session?.token]);
+
+  useEffect(() => {
+    if (!session?.token || lastProcess?.status !== "processing") return undefined;
+
+    const intervalId = window.setInterval(() => {
+      loadArchive(session.token, { silent: true });
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, [session?.token, lastProcess?.status, lastProcess?.documentId, lastProcess?.payload?.documentId]);
 
   if (!session?.token) {
     return (
@@ -731,14 +769,35 @@ function WorkspaceRecords({ empty, records, title }) {
 function ActivityWorkspace({ activities }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const events = useMemo(() => sortRecordsByDate(activities), [activities]);
-  const statusOptions = useMemo(() => Array.from(new Set(activities.map((event) => event.status).filter(Boolean))).sort(), [activities]);
+  const terminalStatusByDocument = useMemo(() => {
+    const statuses = new Map();
+    for (const event of activities) {
+      if (!event.documentId) continue;
+      const status = String(event.status || "").toLowerCase();
+      if (status === "failed") statuses.set(event.documentId, "failed");
+      if (status === "validated" && statuses.get(event.documentId) !== "failed") statuses.set(event.documentId, "validated");
+    }
+    return statuses;
+  }, [activities]);
+  const events = useMemo(
+    () =>
+      sortRecordsByDate(activities).map((event) => {
+        const displayStatusValue = resolveActivityDisplayStatus(event, terminalStatusByDocument);
+        return {
+          ...event,
+          displayStatus: displayStatusValue,
+          displayMessage: resolveActivityDisplayMessage(event, displayStatusValue, terminalStatusByDocument),
+        };
+      }),
+    [activities, terminalStatusByDocument],
+  );
+  const statusOptions = useMemo(() => Array.from(new Set(events.map((event) => event.displayStatus).filter(Boolean))).sort(), [events]);
   const filteredEvents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return events.filter((event) => {
-      const searchable = [event.documentId, event.eventId, event.eventType, event.status, event.service, event.message, event.error].filter(Boolean).join(" ").toLowerCase();
+      const searchable = [event.documentId, event.eventId, event.eventType, event.displayStatus, event.service, event.displayMessage, event.error].filter(Boolean).join(" ").toLowerCase();
       const matchesQuery = !normalizedQuery || searchable.includes(normalizedQuery);
-      const matchesStatus = statusFilter === "all" || event.status === statusFilter;
+      const matchesStatus = statusFilter === "all" || event.displayStatus === statusFilter;
       return matchesQuery && matchesStatus;
     });
   }, [events, query, statusFilter]);
@@ -791,9 +850,9 @@ function ActivityWorkspace({ activities }) {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-bold text-ink">{event.eventType || "activity.event"}</p>
-                      <Badge tone={event.status}>{displayStatus(event.status || "recorded")}</Badge>
+                      <Badge tone={event.displayStatus}>{displayStatus(event.displayStatus || "recorded")}</Badge>
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-muted">{event.message || readableActivityMessage(event)}</p>
+                    <p className="mt-2 text-sm leading-6 text-muted">{event.displayMessage || readableActivityMessage(event)}</p>
                     {event.error ? <p className="mt-2 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{readableActivityError(event)}</p> : null}
                     <div className="mt-3 grid gap-2 text-xs text-muted md:grid-cols-2">
                       <p>
@@ -826,6 +885,33 @@ function ActivityWorkspace({ activities }) {
       </section>
     </div>
   );
+}
+
+function isFailedExamRecord(exam) {
+  const status = String(exam?.status || exam?.validationResult || "").toLowerCase();
+  return ["failed", "invalid", "error"].includes(status);
+}
+
+function resolveActivityDisplayStatus(event, terminalStatusByDocument) {
+  const status = String(event.status || "").toLowerCase();
+  if (status === "processing" && event.documentId) {
+    const terminal = terminalStatusByDocument.get(event.documentId);
+    if (terminal === "failed") return "failed";
+    if (terminal === "validated") return "processed";
+  }
+  return event.status;
+}
+
+function resolveActivityDisplayMessage(event, displayStatusValue, terminalStatusByDocument) {
+  const status = String(event.status || "").toLowerCase();
+  const terminal = event.documentId ? terminalStatusByDocument.get(event.documentId) : "";
+  if (status === "processing" && terminal === "validated") {
+    return "Bu adım sonraki event ile tamamlandı.";
+  }
+  if (status === "processing" && terminal === "failed") {
+    return "Bu adım sonrasında akış hata durumuna geçti.";
+  }
+  return event.message || readableActivityMessage({ ...event, status: displayStatusValue });
 }
 
 function readableActivityMessage(event) {

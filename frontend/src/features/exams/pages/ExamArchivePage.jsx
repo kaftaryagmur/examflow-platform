@@ -21,7 +21,7 @@ export function ExamArchivePage({ busy, exams, onUpdateMetadata }) {
   const statusOptions = useMemo(() => Array.from(new Set(exams.map((exam) => exam.status).filter(Boolean))).sort(), [exams]);
   const validationOptions = useMemo(() => Array.from(new Set(exams.map((exam) => exam.validationResult).filter(Boolean))).sort(), [exams]);
   const tagOptions = useMemo(() => Array.from(new Set(exams.flatMap((exam) => (Array.isArray(exam.tags) ? exam.tags : [])).filter(Boolean))).sort(), [exams]);
-  const tagFolders = useMemo(() => buildTagFolders(exams, (count) => `${count} sinav`), [exams]);
+  const tagFolders = useMemo(() => buildTagFolders(exams, (count) => `${count} sınav`), [exams]);
 
   useEffect(() => {
     setTagFilter(searchParams.get("tag") || "all");

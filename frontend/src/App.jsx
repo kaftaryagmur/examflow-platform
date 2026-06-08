@@ -187,7 +187,11 @@ function HomePage() {
             </div>
 
             {flowSteps.map((item, index) => (
-              <div key={item} className="home-flow-row">
+              <div
+                key={item}
+                className="home-flow-row"
+                style={{ "--flow-index": index }}
+              >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-neon-cyan/40 bg-neon-cyan/10 text-sm font-black text-neon-cyan">
                   {index + 1}
                 </span>

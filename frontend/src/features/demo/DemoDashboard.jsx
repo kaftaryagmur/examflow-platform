@@ -11,13 +11,16 @@ import {
   FileUp,
   KeyRound,
   Loader2,
+  Maximize2,
   Play,
   RefreshCw,
   RotateCcw,
   Server,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { ArchiveList } from "../../components/archive";
 import { Alert, Badge, StatusPill, TimelineStep } from "../../components/status";
@@ -48,6 +51,7 @@ export function DemoDashboard() {
   const [error, setError] = useState("");
 
   const demoDocumentId = useMemo(() => `demo-${compactTimestamp(new Date())}`, [selectedFile]);
+  const appTarget = session?.token ? "/app/dashboard" : "/login";
 
   function apiPath(path) {
     return `${apiBaseUrl.replace(/\/+$/, "")}${path}`;
@@ -334,10 +338,16 @@ export function DemoDashboard() {
               <Badge tone={health?.status || "idle"}>{health?.mode ? `GKE modu: ${displayStatus(health.mode)}` : "GKE bağlantısı"}</Badge>
             </div>
 
-            <button className="btn btn-secondary" type="button" onClick={refreshStatus} disabled={busy === "status"}>
-              {busy === "status" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Durumu yenile
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <Link className="btn btn-primary" to={appTarget}>
+                <ArrowLeft className="h-4 w-4 rotate-180" />
+                Uygulamaya git
+              </Link>
+              <button className="btn btn-secondary" type="button" onClick={refreshStatus} disabled={busy === "status"}>
+                {busy === "status" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                Durumu yenile
+              </button>
+            </div>
           </div>
 
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -377,6 +387,7 @@ export function DemoDashboard() {
 
         {activeView === "dashboard" ? (
           <Dashboard
+            activities={activities}
             busy={busy}
             demoDocumentId={demoDocumentId}
             documents={documents}
@@ -438,6 +449,7 @@ export function DemoDashboard() {
 }
 
 function Dashboard({
+  activities,
   busy,
   demoDocumentId,
   documents,
@@ -498,7 +510,7 @@ function Dashboard({
         </form>
       </section>
 
-      <WorkflowPanel busy={busy} documents={documents} exams={exams} lastDocumentId={lastDocumentId} timeline={timeline} />
+      <WorkflowPanel activities={activities} busy={busy} documents={documents} exams={exams} lastDocumentId={lastDocumentId} timeline={timeline} />
 
       <section className="space-y-5">
         <section className="panel p-5">
@@ -535,7 +547,8 @@ function Dashboard({
   );
 }
 
-function WorkflowPanel({ busy, documents, exams, lastDocumentId, timeline }) {
+function WorkflowPanel({ activities = [], busy, documents, exams, lastDocumentId, timeline }) {
+  const [expanded, setExpanded] = useState(false);
   const stateById = Object.fromEntries(timeline.map((item) => [item.id, item.status]));
   const publishState = stateById.published === "ok" ? "ok" : stateById.received;
   const validationState = stateById.failed === "failed" ? "failed" : stateById.validated;
@@ -548,16 +561,54 @@ function WorkflowPanel({ busy, documents, exams, lastDocumentId, timeline }) {
     { label: "Exam Service", icon: ClipboardList, state: validationState, detail: "sınav kaydı üretir" },
     { label: "MongoDB", icon: Database, state: documents.length || exams.length ? "ok" : "waiting", detail: "doküman ve sınav arşivi" },
   ];
+  const logs = buildWorkflowLogs({ activities, busy, documents, exams, lastDocumentId, timeline });
 
   return (
-    <section className="panel relative min-h-[560px] overflow-hidden p-5">
+    <>
+      <section className="panel relative min-h-[560px] overflow-hidden p-5">
+        <WorkflowMap
+          busy={busy}
+          lastDocumentId={lastDocumentId}
+          nodes={nodes}
+          publishState={publishState}
+          timeline={timeline}
+          onExpand={() => setExpanded(true)}
+        />
+      </section>
+
+      {expanded ? (
+        <WorkflowFullscreenModal
+          busy={busy}
+          lastDocumentId={lastDocumentId}
+          logs={logs}
+          nodes={nodes}
+          onClose={() => setExpanded(false)}
+          publishState={publishState}
+          timeline={timeline}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function WorkflowMap({ busy, lastDocumentId, nodes, onExpand, publishState, timeline }) {
+  return (
+    <>
       <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyber-purple via-neon-cyan to-neon-magenta" />
-      <div className="mb-5 flex items-center justify-between">
+      <div className="mb-5 flex items-center justify-between gap-3">
         <div>
           <p className="label">Event-driven workflow</p>
           <h2 className="mt-1 text-xl font-bold text-ink">Doküman işleme akışı</h2>
         </div>
-        <Badge tone={busy ? "running" : publishState === "ok" ? "ok" : "idle"}>{busy ? "Çalışıyor" : "Hazır"}</Badge>
+        <div className="flex items-center gap-2">
+          <Badge tone={busy ? "running" : publishState === "ok" ? "ok" : "idle"}>{busy ? "Çalışıyor" : "Hazır"}</Badge>
+          {onExpand ? (
+            <button className="btn btn-secondary" type="button" onClick={onExpand} title="Tam ekran izleme">
+              <Maximize2 className="h-4 w-4" />
+              Tam ekran
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_7rem_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1fr)_9rem_minmax(0,1fr)]">
@@ -587,8 +638,115 @@ function WorkflowPanel({ busy, documents, exams, lastDocumentId, timeline }) {
           <TimelineStep key={item.id} item={item} />
         ))}
       </div>
-    </section>
+    </>
   );
+}
+
+function WorkflowFullscreenModal({ busy, lastDocumentId, logs, nodes, onClose, publishState, timeline }) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 p-3 backdrop-blur-xl sm:p-5" role="dialog" aria-modal="true" aria-label="Tam ekran workflow izleme">
+      <section className="grid h-full overflow-hidden rounded-lg border border-neon-cyan/35 bg-[#080719] shadow-neon-cyan xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
+        <div className="relative min-h-0 overflow-auto p-5 lg:p-7">
+          <WorkflowMap busy={busy} lastDocumentId={lastDocumentId} nodes={nodes} publishState={publishState} timeline={timeline} />
+        </div>
+
+        <aside className="min-h-0 border-t border-space-line bg-black/35 p-5 xl:border-l xl:border-t-0">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <p className="label">Canlı loglar</p>
+              <h2 className="mt-1 text-xl font-black text-ink">Event ve servis kayıtları</h2>
+            </div>
+            <button className="btn btn-secondary" type="button" onClick={onClose}>
+              <X className="h-4 w-4" />
+              Kapat
+            </button>
+          </div>
+
+          <div className="grid max-h-[calc(100vh-8.5rem)] gap-3 overflow-auto pr-1">
+            {logs.length ? (
+              logs.map((log) => <WorkflowLogCard key={log.id} log={log} />)
+            ) : (
+              <p className="rounded-lg border border-dashed border-space-line bg-black/25 p-4 text-sm text-muted">Henüz workflow log kaydı yok. Bir doküman gönderildiğinde event adımları burada akacak.</p>
+            )}
+          </div>
+        </aside>
+      </section>
+    </div>
+  );
+}
+
+function WorkflowLogCard({ log }) {
+  return (
+    <article className={`rounded-lg border p-4 ${toneClass(log.tone)}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="break-words text-sm font-black text-ink">{log.title}</p>
+        <Badge tone={log.tone}>{displayStatus(log.status)}</Badge>
+      </div>
+      <p className="mt-2 break-words text-xs leading-5 text-muted">{log.message}</p>
+      <div className="mt-3 grid gap-1 text-xs text-muted">
+        <p><span className="font-bold text-ink">Servis:</span> {log.service}</p>
+        <p><span className="font-bold text-ink">documentId:</span> <span className="break-all">{log.documentId || "-"}</span></p>
+        <p><span className="font-bold text-ink">Zaman:</span> {parseRecordDate(log.createdAt)}</p>
+      </div>
+      {log.raw ? (
+        <pre className="mt-3 max-h-32 overflow-auto rounded-md border border-space-line bg-black/40 p-3 text-[11px] leading-5 text-slate-200">{JSON.stringify(log.raw, null, 2)}</pre>
+      ) : null}
+    </article>
+  );
+}
+
+function buildWorkflowLogs({ activities, busy, documents, exams, lastDocumentId, timeline }) {
+  const activityLogs = sortRecordsByDate(activities)
+    .filter((event) => !lastDocumentId || event.documentId === lastDocumentId)
+    .map((event) => ({
+      createdAt: event.createdAt || event.updatedAt,
+      documentId: event.documentId,
+      id: event.id || `${event.eventId}-${event.eventType}-${event.createdAt}`,
+      message: event.message || readableDemoActivityMessage(event),
+      raw: event,
+      service: event.service || serviceFromEventType(event.eventType),
+      status: event.status || "recorded",
+      title: readableDemoActivityTitle(event),
+      tone: event.status || "idle",
+    }));
+
+  const timelineLogs = timeline
+    .filter((item) => item.status && item.status !== "waiting")
+    .map((item) => ({
+      createdAt: new Date().toISOString(),
+      documentId: lastDocumentId,
+      id: `timeline-${item.id}-${item.status}`,
+      message: item.description || `${item.label} adımı ${displayStatus(item.status)} durumunda.`,
+      service: item.service || item.label,
+      status: item.status,
+      title: item.label,
+      tone: item.status,
+    }));
+
+  const storageLogs = [
+    documents.length ? { createdAt: new Date().toISOString(), documentId: lastDocumentId, id: "storage-documents", message: `${documents.length} doküman kaydı MongoDB documents collection içinde görünüyor.`, service: "MongoDB", status: "ok", title: "Documents collection", tone: "ok" } : null,
+    exams.length ? { createdAt: new Date().toISOString(), documentId: lastDocumentId, id: "storage-exams", message: `${exams.length} sınav kaydı MongoDB exams collection içinde görünüyor.`, service: "MongoDB", status: "ok", title: "Exams collection", tone: "ok" } : null,
+    busy ? { createdAt: new Date().toISOString(), documentId: lastDocumentId, id: "busy", message: `${busy} işlemi devam ediyor.`, service: "Demo UI", status: "running", title: "Canlı işlem", tone: "running" } : null,
+  ].filter(Boolean);
+
+  return [...activityLogs, ...timelineLogs, ...storageLogs];
+}
+
+function serviceFromEventType(eventType = "") {
+  const type = String(eventType).toLowerCase();
+  if (type.includes("publish") || type.includes("received")) return "api-service";
+  if (type.includes("worker") || type.includes("processed")) return "worker-service";
+  if (type.includes("valid")) return "validation-service";
+  if (type.includes("exam")) return "exam-service";
+  return "event-stream";
 }
 
 function WorkflowNode({ node }) {

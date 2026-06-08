@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 
 import { Badge } from "./status";
 
-export function TagFolderPanel({ folders, onSelect, selectedTag = "all", title = "Etiket klasorleri" }) {
+export function TagFolderPanel({ folders, onSelect, selectedTag = "all", title = "Etiket klasörleri" }) {
   if (!folders.length) return null;
 
   return (
@@ -35,12 +35,12 @@ export function TagFolderPanel({ folders, onSelect, selectedTag = "all", title =
                 <div className="mt-4 flex flex-wrap gap-2">
                   {folder.documentTo ? (
                     <Link className="btn btn-secondary" to={folder.documentTo}>
-                      Dokumanlar
+                      Dokümanlar
                     </Link>
                   ) : null}
                   {folder.examTo ? (
                     <Link className="btn btn-secondary" to={folder.examTo}>
-                      Sinavlar
+                      Sınavlar
                     </Link>
                   ) : null}
                 </div>

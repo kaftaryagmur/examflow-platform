@@ -7,10 +7,12 @@ import {
   FileUp,
   Home,
   Loader2,
+  Menu,
   RefreshCw,
   ShieldCheck,
   Trash2,
   User,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -150,8 +152,14 @@ export function ProductApp() {
   const [processNotice, setProcessNotice] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const isAdmin = isAdminSession(session);
+  const navItems = useMemo(
+    () => appNav.filter((item) => item.to !== "/app/admin" || isAdmin),
+    [isAdmin],
+  );
 
   function apiPath(path) {
     return `${apiBaseUrl.replace(/\/+$/, "")}${path}`;
@@ -552,6 +560,30 @@ export function ProductApp() {
   }, [session?.token]);
 
   useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!sidebarOpen) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setSidebarOpen(false);
+      }
+    }
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [sidebarOpen]);
+
+  useEffect(() => {
     if (!session?.token || lastProcess?.status !== "processing")
       return undefined;
 
@@ -572,37 +604,71 @@ export function ProductApp() {
   }
 
   return (
-    <main className="app-shell">
-      <aside className="app-sidebar">
-        <div className="flex items-center gap-3">
-          <img className="brand-logo" src={markLogoSrc} alt="ExamFlow logo" />
-          <div className="min-w-0">
-            <p className="label">ExamFlow</p>
-            <h1 className="truncate text-lg font-black text-ink">
-              Kontrol Paneli
-            </h1>
+    <main className={`app-shell ${sidebarOpen ? "sidebar-open" : ""}`}>
+      <button
+        aria-label="Menuyu kapat"
+        className="app-sidebar-backdrop"
+        type="button"
+        onClick={() => setSidebarOpen(false)}
+      />
+
+      <aside
+        aria-label="Uygulama menusu"
+        className="app-sidebar"
+        id="app-navigation"
+      >
+        <div className="app-sidebar-header">
+          <div className="flex min-w-0 items-center gap-3">
+            <img className="brand-logo" src={markLogoSrc} alt="ExamFlow logo" />
+            <div className="min-w-0">
+              <p className="label">ExamFlow</p>
+              <h1 className="truncate text-lg font-black text-ink">
+                Kontrol Paneli
+              </h1>
+            </div>
           </div>
+
+          <button
+            aria-label="Menuyu kapat"
+            className="app-sidebar-close"
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         <nav className="mt-8 grid gap-2" aria-label="Uygulama menüsü">
-          {appNav
-            .filter((item) => item.to !== "/app/admin" || isAdmin)
-            .map((item) => (
-              <AppNavItem key={item.to} item={item} />
-            ))}
+          {navItems.map((item) => (
+            <AppNavItem
+              key={item.to}
+              item={item}
+              onClick={() => setSidebarOpen(false)}
+            />
+          ))}
         </nav>
       </aside>
 
       <section className="app-main">
         <header className="app-topbar">
-          <div className="self-start">
-            <h2 className="text-2xl font-black text-ink">
+          <div className="flex min-w-0 items-center gap-3 self-start">
+            <button
+              aria-controls="app-navigation"
+              aria-expanded={sidebarOpen}
+              aria-label="Menuyu ac"
+              className="app-menu-button"
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <h2 className="min-w-0 text-xl font-black leading-tight text-ink sm:text-2xl">
               ExamFlow Kullanıcı Paneli
             </h2>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
+          <div className="app-topbar-actions">
             <button
-              className="btn btn-secondary"
+              className="btn btn-secondary w-full sm:w-auto"
               type="button"
               onClick={() => loadArchive()}
               disabled={busy === "archive"}
@@ -614,7 +680,7 @@ export function ProductApp() {
               )}
               Arşivi yenile
             </button>
-            <div className="flex min-w-[320px] items-center gap-4 rounded-lg border border-space-line bg-black/25 px-4 py-3">
+            <div className="app-user-card">
               <div className="min-w-0">
                 <p className="label">Giriş yapan kullanıcı</p>
                 <p className="mt-1 truncate text-sm font-bold text-ink">
@@ -622,7 +688,7 @@ export function ProductApp() {
                 </p>
               </div>
               <button
-                className="btn btn-secondary ml-auto"
+                className="btn btn-secondary w-full sm:ml-auto sm:w-auto"
                 type="button"
                 onClick={() => navigate("/app/profile")}
               >
@@ -630,7 +696,7 @@ export function ProductApp() {
                 Profil
               </button>
               <button
-                className="btn btn-secondary"
+                className="btn btn-secondary w-full sm:w-auto"
                 type="button"
                 onClick={logout}
               >
@@ -833,11 +899,12 @@ function AuthPanel({ busy, error, onSubmit }) {
   );
 }
 
-function AppNavItem({ item }) {
+function AppNavItem({ item, onClick }) {
   const Icon = item.icon;
   return (
     <NavLink
       className={({ isActive }) => `app-nav-item ${isActive ? "active" : ""}`}
+      onClick={onClick}
       to={item.to}
     >
       <Icon className="h-4 w-4" />

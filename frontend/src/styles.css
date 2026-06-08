@@ -206,23 +206,52 @@
   }
 
   .app-shell {
-    @apply grid min-h-screen lg:grid-cols-[280px_1fr];
+    @apply min-h-screen lg:grid lg:grid-cols-[280px_1fr];
   }
 
   .app-sidebar {
-    @apply flex min-h-screen flex-col border-r border-space-line bg-black/35 px-5 py-6 backdrop-blur-xl;
+    @apply fixed inset-y-0 left-0 z-40 flex min-h-screen w-[min(84vw,20rem)] -translate-x-full flex-col overflow-y-auto border-r border-space-line bg-[#090616]/95 px-5 py-5 shadow-2xl backdrop-blur-xl transition-transform duration-200 ease-out lg:sticky lg:top-0 lg:z-auto lg:w-auto lg:translate-x-0 lg:bg-black/35 lg:py-6 lg:shadow-none;
+  }
+
+  .app-shell.sidebar-open .app-sidebar {
+    transform: translateX(0);
+  }
+
+  .app-sidebar-backdrop {
+    @apply fixed inset-0 z-30 hidden bg-black/65 backdrop-blur-sm;
+  }
+
+  .app-shell.sidebar-open .app-sidebar-backdrop {
+    @apply block lg:hidden;
+  }
+
+  .app-sidebar-header {
+    @apply flex items-center justify-between gap-3;
+  }
+
+  .app-sidebar-close,
+  .app-menu-button {
+    @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-space-line bg-white/5 text-ink transition hover:border-neon-cyan/60 hover:bg-neon-cyan/10 lg:hidden;
   }
 
   .app-main {
-    @apply min-w-0 px-4 py-5 sm:px-6 lg:px-8;
+    @apply min-w-0 px-3 py-4 sm:px-6 lg:px-8 lg:py-5;
   }
 
   .app-topbar {
-    @apply mb-5 flex flex-col gap-4 rounded-lg border border-space-line bg-black/25 p-4 backdrop-blur lg:flex-row lg:items-end lg:justify-between;
+    @apply mb-5 flex flex-col gap-4 rounded-lg border border-space-line bg-black/25 p-3 backdrop-blur sm:p-4 lg:flex-row lg:items-end lg:justify-between;
+  }
+
+  .app-topbar-actions {
+    @apply flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-stretch lg:w-auto;
+  }
+
+  .app-user-card {
+    @apply flex w-full min-w-0 flex-col gap-3 rounded-lg border border-space-line bg-black/25 px-3 py-3 sm:flex-row sm:items-center sm:px-4 lg:min-w-[320px] lg:w-auto;
   }
 
   .app-nav-item {
-    @apply inline-flex h-11 items-center gap-3 rounded-md border border-transparent px-3 text-sm font-bold text-muted transition hover:border-neon-cyan/40 hover:bg-neon-cyan/10 hover:text-ink;
+    @apply inline-flex h-11 w-full items-center gap-3 rounded-md border border-transparent px-3 text-sm font-bold text-muted transition hover:border-neon-cyan/40 hover:bg-neon-cyan/10 hover:text-ink;
   }
 
   .app-nav-item.active {

@@ -2,11 +2,13 @@ import { ClipboardList, Eye } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Badge } from "../../../components/status";
+import { RecordMetadataControls } from "../../../components/recordMetadata";
 import { displayStatus, parseRecordDate } from "../../../utils/format";
 import { ExamMeta } from "./ExamMeta";
 
-export function ExamArchiveCard({ exam }) {
+export function ExamArchiveCard({ busy, exam, onUpdateMetadata }) {
   const examKey = encodeURIComponent(exam.id || exam.examId || exam.documentId || "");
+  const recordKey = exam.id || exam.examId || exam.documentId || "";
 
   return (
     <article className="rounded-lg border border-space-line bg-black/25 p-4 transition hover:border-neon-cyan/50 hover:bg-neon-cyan/5">
@@ -31,6 +33,16 @@ export function ExamArchiveCard({ exam }) {
         <ExamMeta label="Oluşturulma" value={parseRecordDate(exam.createdAt)} />
         <ExamMeta label="Güncelleme" value={parseRecordDate(exam.updatedAt)} />
       </dl>
+
+      <div className="mt-4">
+        <RecordMetadataControls
+          busy={busy === `metadata-exam-${recordKey}`}
+          onChange={(metadata) => onUpdateMetadata?.(recordKey, metadata)}
+          record={exam}
+          size="compact"
+          type="exam"
+        />
+      </div>
 
       <div className="mt-4 flex justify-end">
         <Link className="btn btn-secondary" to={`/app/exams/${examKey}`}>

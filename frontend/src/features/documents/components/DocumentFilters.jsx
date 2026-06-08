@@ -2,9 +2,23 @@ import { Search } from "lucide-react";
 
 import { displayStatus } from "../../../utils/format";
 
-export function DocumentFilters({ query, setQuery, sourceFilter, setSourceFilter, sourceOptions, statusFilter, setStatusFilter, statusOptions }) {
+export function DocumentFilters({
+  favoriteFilter,
+  query,
+  setFavoriteFilter,
+  setQuery,
+  setSourceFilter,
+  setStatusFilter,
+  setTagFilter,
+  sourceFilter,
+  sourceOptions,
+  statusFilter,
+  statusOptions,
+  tagFilter,
+  tagOptions,
+}) {
   return (
-    <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_220px_220px]">
+    <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_180px_180px_180px_180px]">
       <label className="block">
         <span className="label">Dosya adı, documentId veya kaynak ara</span>
         <div className="relative mt-1">
@@ -32,6 +46,26 @@ export function DocumentFilters({ query, setQuery, sourceFilter, setSourceFilter
           {sourceOptions.map((source) => (
             <option key={source} value={source}>
               {source}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="block">
+        <span className="label">Favori</span>
+        <select className="field mt-1" value={favoriteFilter} onChange={(event) => setFavoriteFilter(event.target.value)}>
+          <option value="all">TÃ¼m kayÄ±tlar</option>
+          <option value="favorites">Favoriler</option>
+        </select>
+      </label>
+
+      <label className="block">
+        <span className="label">Etiket</span>
+        <select className="field mt-1" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
+          <option value="all">TÃ¼m etiketler</option>
+          {tagOptions.map((tag) => (
+            <option key={tag} value={tag}>
+              {tag}
             </option>
           ))}
         </select>

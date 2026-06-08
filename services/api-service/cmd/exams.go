@@ -1,8 +1,14 @@
 package main
 
-import "go.mongodb.org/mongo-driver/v2/bson"
+import (
+	"errors"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+)
 
 const examsCollection = "exams"
+
+var errExamNotFound = errors.New("exam not found")
 
 type Exam struct {
 	ID               bson.ObjectID   `bson:"_id,omitempty" json:"id,omitempty"`
@@ -11,6 +17,8 @@ type Exam struct {
 	Title            string          `bson:"title" json:"title"`
 	ValidationResult string          `bson:"validationResult" json:"validationResult"`
 	Status           string          `bson:"status" json:"status"`
+	Favorite         bool            `bson:"favorite,omitempty" json:"favorite"`
+	Tags             []string        `bson:"tags,omitempty" json:"tags,omitempty"`
 	Questions        []ExamQuestion  `bson:"questions,omitempty" json:"questions,omitempty"`
 	InfoCards        []ExamInfoCard  `bson:"infoCards,omitempty" json:"infoCards,omitempty"`
 	GenerationModel  string          `bson:"generationModel,omitempty" json:"generationModel,omitempty"`

@@ -2,11 +2,13 @@ import { Eye, FileText } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Badge } from "../../../components/status";
+import { RecordMetadataControls } from "../../../components/recordMetadata";
 import { displayStatus, parseRecordDate } from "../../../utils/format";
 import { DocumentMeta } from "./DocumentMeta";
 
-export function DocumentArchiveCard({ document }) {
+export function DocumentArchiveCard({ busy, document, onUpdateMetadata }) {
   const documentKey = encodeURIComponent(document.documentId || document.id || "");
+  const recordKey = document.documentId || document.id || "";
 
   return (
     <article className="rounded-lg border border-space-line bg-black/25 p-4 transition hover:border-neon-cyan/50 hover:bg-neon-cyan/5">
@@ -31,6 +33,16 @@ export function DocumentArchiveCard({ document }) {
         <DocumentMeta label="Oluşturulma" value={parseRecordDate(document.createdAt)} />
         <DocumentMeta label="Güncelleme" value={parseRecordDate(document.updatedAt)} />
       </dl>
+
+      <div className="mt-4">
+        <RecordMetadataControls
+          busy={busy === `metadata-document-${recordKey}`}
+          onChange={(metadata) => onUpdateMetadata?.(recordKey, metadata)}
+          record={document}
+          size="compact"
+          type="document"
+        />
+      </div>
 
       <div className="mt-4 flex justify-end">
         <Link className="btn btn-secondary" to={`/app/documents/${documentKey}`}>

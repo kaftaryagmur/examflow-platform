@@ -26,6 +26,8 @@ import { parseResponse, responseMessage } from "../../utils/api";
 import { compactTimestamp, delay, displayStatus, parseRecordDate, sortRecordsByDate, toneClass } from "../../utils/format";
 import { readStoredSession } from "../../utils/session";
 
+const markLogoSrc = "/assets/logo2.png";
+
 export function DemoDashboard() {
   const [activeView, setActiveView] = useState("dashboard");
   const apiBaseUrl = defaultBaseUrl;
@@ -324,9 +326,7 @@ export function DemoDashboard() {
         <div className="mx-auto flex max-w-[1500px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-neon-cyan/40 bg-gradient-to-br from-cyber-purple/80 to-neon-cyan/60 text-xl font-black text-white shadow-neon-cyan">
-                E
-              </div>
+              <img className="brand-logo" src={markLogoSrc} alt="ExamFlow logo" />
               <div className="min-w-0">
                 <p className="label">ExamFlow</p>
                 <h1 className="truncate text-2xl font-black text-ink sm:text-3xl">Canlı Demo Akışı</h1>

@@ -18,6 +18,9 @@ const (
 
 	userStatusActive   = "active"
 	userStatusDisabled = "disabled"
+
+	userRoleAdmin = "admin"
+	userRoleUser  = "user"
 )
 
 var (
@@ -32,6 +35,7 @@ type User struct {
 	DisplayName  string        `bson:"displayName" json:"displayName"`
 	PasswordHash string        `bson:"passwordHash,omitempty" json:"-"`
 	Status       string        `bson:"status" json:"status"`
+	Role         string        `bson:"role,omitempty" json:"role,omitempty"`
 	CreatedAt    string        `bson:"createdAt" json:"createdAt"`
 	UpdatedAt    string        `bson:"updatedAt" json:"updatedAt"`
 }
@@ -47,11 +51,18 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
+type updateProfileRequest struct {
+	DisplayName     string `json:"displayName"`
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
 type userResponse struct {
 	ID          string `json:"id"`
 	Email       string `json:"email"`
 	DisplayName string `json:"displayName"`
 	Status      string `json:"status"`
+	Role        string `json:"role"`
 }
 
 type authResponse struct {
@@ -71,6 +82,7 @@ type authClaims struct {
 	Email       string `json:"email"`
 	DisplayName string `json:"displayName"`
 	Status      string `json:"status"`
+	Role        string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -127,6 +139,33 @@ func decodeLoginRequest(r *http.Request) (loginRequest, error) {
 	return req, nil
 }
 
+func decodeUpdateProfileRequest(r *http.Request) (updateProfileRequest, error) {
+	defer r.Body.Close()
+
+	var req updateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return updateProfileRequest{}, errors.New("invalid json body")
+	}
+
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+	req.CurrentPassword = strings.TrimSpace(req.CurrentPassword)
+	req.NewPassword = strings.TrimSpace(req.NewPassword)
+
+	if req.DisplayName == "" && req.NewPassword == "" {
+		return updateProfileRequest{}, errors.New("displayName or newPassword is required")
+	}
+	if req.NewPassword != "" {
+		if req.CurrentPassword == "" {
+			return updateProfileRequest{}, errors.New("currentPassword is required")
+		}
+		if len(req.NewPassword) < 8 {
+			return updateProfileRequest{}, errors.New("newPassword must be at least 8 characters")
+		}
+	}
+
+	return req, nil
+}
+
 func registerUser(ctx context.Context, users userStore, req registerRequest) (User, error) {
 	if _, err := users.FindUserByEmail(ctx, req.Email); err == nil {
 		return User{}, errUserAlreadyExists
@@ -146,11 +185,51 @@ func registerUser(ctx context.Context, users userStore, req registerRequest) (Us
 		DisplayName:  req.DisplayName,
 		PasswordHash: string(hash),
 		Status:       userStatusActive,
+		Role:         userRoleUser,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
 
 	return users.CreateUser(ctx, user)
+}
+
+func ensureDefaultAdminUser(ctx context.Context, users userStore) error {
+	const adminEmail = "admin@examflow.com"
+	const adminPassword = "123456789"
+
+	existing, err := users.FindUserByEmail(ctx, adminEmail)
+	if err == nil {
+		hash, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		existing.Role = userRoleAdmin
+		existing.Status = userStatusActive
+		existing.PasswordHash = string(hash)
+		existing.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		_, err = users.UpdateUser(ctx, existing)
+		return err
+	}
+	if !errors.Is(err, errUserNotFound) {
+		return err
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err = users.CreateUser(ctx, User{
+		ID:           bson.NewObjectID(),
+		Email:        adminEmail,
+		DisplayName:  "ExamFlow Admin",
+		PasswordHash: string(hash),
+		Status:       userStatusActive,
+		Role:         userRoleAdmin,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	})
+	return err
 }
 
 func loginUser(ctx context.Context, users userStore, auth authService, req loginRequest) (User, string, error) {
@@ -172,13 +251,57 @@ func loginUser(ctx context.Context, users userStore, auth authService, req login
 	return user, token, nil
 }
 
+func updateUserProfile(ctx context.Context, users userStore, auth authService, userID string, req updateProfileRequest) (User, string, error) {
+	user, err := users.FindUserByID(ctx, userID)
+	if err != nil {
+		return User{}, "", err
+	}
+	if user.Status != userStatusActive {
+		return User{}, "", errInvalidLogin
+	}
+
+	if req.NewPassword != "" {
+		if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+			return User{}, "", errInvalidLogin
+		}
+		hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+		if err != nil {
+			return User{}, "", err
+		}
+		user.PasswordHash = string(hash)
+	}
+	if req.DisplayName != "" {
+		user.DisplayName = req.DisplayName
+	}
+	user.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+
+	updated, err := users.UpdateUser(ctx, user)
+	if err != nil {
+		return User{}, "", err
+	}
+	token, err := auth.GenerateToken(updated)
+	if err != nil {
+		return User{}, "", err
+	}
+	return updated, token, nil
+}
+
 func userResponseFromUser(user User) userResponse {
 	return userResponse{
 		ID:          user.ID.Hex(),
 		Email:       user.Email,
 		DisplayName: user.DisplayName,
 		Status:      user.Status,
+		Role:        normalizeUserRole(user.Role),
 	}
+}
+
+func normalizeUserRole(role string) string {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == userRoleAdmin {
+		return userRoleAdmin
+	}
+	return userRoleUser
 }
 
 func normalizeEmail(email string) string {
@@ -207,6 +330,7 @@ func (auth authService) GenerateToken(user User) (string, error) {
 		Email:       user.Email,
 		DisplayName: user.DisplayName,
 		Status:      user.Status,
+		Role:        normalizeUserRole(user.Role),
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   user.ID.Hex(),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -276,11 +400,16 @@ func authPrincipalFromContext(ctx context.Context) (authClaims, bool) {
 	return claims, ok
 }
 
+func isAdminClaims(claims authClaims) bool {
+	return normalizeUserRole(claims.Role) == userRoleAdmin || normalizeEmail(claims.Email) == "admin@examflow.com"
+}
+
 func userResponseFromClaims(claims authClaims) userResponse {
 	return userResponse{
 		ID:          claims.UserID,
 		Email:       claims.Email,
 		DisplayName: claims.DisplayName,
 		Status:      claims.Status,
+		Role:        normalizeUserRole(claims.Role),
 	}
 }

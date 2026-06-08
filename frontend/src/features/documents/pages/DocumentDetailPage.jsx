@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  Activity,
   ArrowLeft,
   ClipboardList,
   Download,
@@ -15,11 +16,11 @@ import { Link, useParams } from "react-router-dom";
 
 import { Badge } from "../../../components/status";
 import { defaultBaseUrl } from "../../../config/appConfig";
-import { displayStatus, parseRecordDate } from "../../../utils/format";
+import { displayStatus, parseRecordDate, sortRecordsByDate } from "../../../utils/format";
 import { readStoredSession } from "../../../utils/session";
 import { DocumentMeta } from "../components/DocumentMeta";
 
-export function DocumentDetailPage({ documents, exams = [] }) {
+export function DocumentDetailPage({ activities = [], documents, exams = [] }) {
   const { documentId } = useParams();
   const decodedDocumentId = decodeURIComponent(documentId || "");
   const document = documents.find((item) => item.documentId === decodedDocumentId || item.id === decodedDocumentId);
@@ -42,6 +43,7 @@ export function DocumentDetailPage({ documents, exams = [] }) {
 
   const fileInfo = getFileInfo(document);
   const linkedExams = exams.filter((exam) => exam.documentId === document.documentId || exam.documentId === document.id);
+  const documentActivities = sortRecordsByDate(activities.filter((event) => event.documentId === document.documentId || event.documentId === document.id));
 
   return (
     <div className="grid gap-5">
@@ -58,18 +60,10 @@ export function DocumentDetailPage({ documents, exams = [] }) {
         <Badge tone={document.status}>{displayStatus(document.status || "recorded")}</Badge>
       </section>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.28fr)]">
-        <aside className="grid content-start gap-5">
-          <DocumentMetadata document={document} fileInfo={fileInfo} />
-          <LinkedExamPanel exams={linkedExams} />
-          <StorageReadiness fileInfo={fileInfo} />
-        </aside>
-
-        <main className="grid gap-5">
-          <DocumentViewer document={document} fileInfo={fileInfo} />
-          <ProcessingContext document={document} linkedExamCount={linkedExams.length} />
-        </main>
-      </div>
+      <main className="grid gap-5">
+        <DocumentViewer document={document} fileInfo={fileInfo} />
+        <LinkedExamPanel exams={linkedExams} />
+      </main>
     </div>
   );
 }
@@ -164,7 +158,6 @@ function ResolvedViewer({ fileInfo, title }) {
         <iframe
           className="h-[68vh] min-h-[520px] w-full bg-white"
           referrerPolicy="no-referrer"
-          sandbox="allow-same-origin allow-scripts"
           src={fileInfo.url}
           title={title}
         />
@@ -276,6 +269,48 @@ function LinkedExamPanel({ exams }) {
           </div>
         )}
       </div>
+    </section>
+  );
+}
+
+function DocumentActivityPanel({ activities }) {
+  return (
+    <section className="panel p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="label">İşlem geçmişi</p>
+          <h3 className="section-title">Bu dokümanın event akışı</h3>
+        </div>
+        <Badge tone={activities.length ? "ok" : "idle"}>{activities.length} olay</Badge>
+      </div>
+
+      {activities.length ? (
+        <div className="mt-5 grid gap-3">
+          {activities.map((event) => (
+            <article className="rounded-lg border border-space-line bg-black/25 p-4" key={event.id || `${event.eventId}-${event.eventType}-${event.createdAt}`}>
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan">
+                  <Activity className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-black text-ink">{readableDocumentActivityTitle(event)}</p>
+                    <Badge tone={event.status}>{displayStatus(event.status || "recorded")}</Badge>
+                  </div>
+                  <p className="mt-2 break-words text-xs leading-5 text-muted">{event.message || readableDocumentActivityMessage(event)}</p>
+                  <p className="mt-2 text-xs text-muted">{parseRecordDate(event.createdAt || event.updatedAt)}</p>
+                  {event.error ? <p className="mt-2 rounded-lg border border-danger/40 bg-danger/10 p-3 text-xs text-danger">{event.error}</p> : null}
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-5 rounded-lg border border-dashed border-space-line bg-black/20 p-4">
+          <p className="text-sm font-bold text-ink">Bu doküman için işlem geçmişi henüz görünmüyor.</p>
+          <p className="mt-2 text-xs leading-5 text-muted">API, Worker, Validation ve Exam servislerinden gelen activity kayıtları burada aynı documentId altında listelenecek.</p>
+        </div>
+      )}
     </section>
   );
 }
@@ -395,7 +430,8 @@ function useSecureDocumentFile(fileInfo) {
         });
 
         if (!response.ok) {
-          throw new Error(`Dosya isteği başarısız oldu (${response.status}).`);
+          const errorText = await response.text().catch(() => "");
+          throw new Error(`Dosya isteği başarısız oldu (${response.status})${errorText ? `: ${errorText.trim()}` : ""}.`);
         }
 
         const blob = await response.blob();
@@ -428,4 +464,28 @@ function resolveDocumentFileUrl(fileUrl) {
   if (fileUrl.startsWith(`${defaultBaseUrl}/`)) return fileUrl;
   if (fileUrl.startsWith("/")) return `${defaultBaseUrl}${fileUrl}`;
   return `${defaultBaseUrl}/${fileUrl}`;
+}
+
+function readableDocumentActivityTitle(event) {
+  const status = String(event.status || "").toLowerCase();
+  const type = String(event.eventType || "").toLowerCase();
+  if (status === "received" || type.includes("received")) return "Doküman alındı";
+  if (status === "published" || type.includes("published")) return "Pub/Sub event yayınlandı";
+  if (status === "processing" || type.includes("processing")) return "Worker işleme başladı";
+  if (status === "processed" || type.includes("processed")) return "Doküman işleme tamamlandı";
+  if (status === "validated" || type.includes("validated")) return "Doğrulama tamamlandı";
+  if (status === "failed" || type.includes("failed")) return "Akış hata aldı";
+  if (type.includes("exam")) return "Sınav kaydı oluşturuldu";
+  return "Activity kaydı";
+}
+
+function readableDocumentActivityMessage(event) {
+  const status = String(event.status || "").toLowerCase();
+  if (status === "received") return "API Service doküman isteğini aldı.";
+  if (status === "published") return "Doküman event'i Pub/Sub hattına yayınlandı.";
+  if (status === "processing") return "Worker Service dokümanı işliyor.";
+  if (status === "processed") return "Doküman işleme adımı tamamlandı.";
+  if (status === "validated") return "Validation sonucu üretildi ve sınav kaydı hazırlandı.";
+  if (status === "failed") return "Bu dokümanın event akışında hata oluştu.";
+  return "Bu dokümana ait activity kaydı oluşturuldu.";
 }

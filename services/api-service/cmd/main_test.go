@@ -157,6 +157,9 @@ func (f *fakeUserStore) CreateUser(_ context.Context, user User) (User, error) {
 	if _, ok := f.users[user.Email]; ok {
 		return User{}, errUserAlreadyExists
 	}
+	if user.Role == "" {
+		user.Role = userRoleUser
+	}
 	f.users[user.Email] = user
 	return user, nil
 }
@@ -173,6 +176,43 @@ func (f *fakeUserStore) FindUserByEmail(_ context.Context, email string) (User, 
 		return User{}, errUserNotFound
 	}
 	return user, nil
+}
+
+func (f *fakeUserStore) FindUserByID(_ context.Context, userID string) (User, error) {
+	if f.err != nil {
+		return User{}, f.err
+	}
+	if f.users == nil {
+		return User{}, errUserNotFound
+	}
+	for _, user := range f.users {
+		if user.ID.Hex() == userID {
+			return user, nil
+		}
+	}
+	return User{}, errUserNotFound
+}
+
+func (f *fakeUserStore) UpdateUser(_ context.Context, user User) (User, error) {
+	if f.err != nil {
+		return User{}, f.err
+	}
+	if f.users == nil {
+		return User{}, errUserNotFound
+	}
+	f.users[user.Email] = user
+	return user, nil
+}
+
+func (f *fakeUserStore) ListUsers(_ context.Context) ([]User, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	users := make([]User, 0, len(f.users))
+	for _, user := range f.users {
+		users = append(users, user)
+	}
+	return users, nil
 }
 
 func (f *fakeDocumentStore) CreateDocument(_ context.Context, document Document) (Document, error) {

@@ -1,7 +1,9 @@
+import { Eye } from "lucide-react";
+
 import { Badge } from "./status";
 import { displayStatus, parseRecordDate } from "../utils/format";
 
-export function ArchiveList({ records, empty }) {
+export function ArchiveList({ records, empty, onSelectRecord, viewLabel = "Detayı görüntüle" }) {
   if (!records.length) {
     return <p className="panel p-5 text-sm text-muted">{empty}</p>;
   }
@@ -22,6 +24,12 @@ export function ArchiveList({ records, empty }) {
             <ArchiveRow label="Oluşturulma" value={parseRecordDate(record.createdAt)} />
             <ArchiveRow label="Güncelleme" value={parseRecordDate(record.updatedAt)} />
           </dl>
+          {onSelectRecord ? (
+            <button className="btn btn-secondary mt-4 w-full" type="button" onClick={() => onSelectRecord(record)}>
+              <Eye className="h-4 w-4" />
+              {viewLabel}
+            </button>
+          ) : null}
         </article>
       ))}
     </div>

@@ -1,5 +1,8 @@
 import {
   Activity,
+  ArrowLeft,
+  BookOpen,
+  CheckCircle2,
   ClipboardList,
   Cloud,
   Cpu,
@@ -20,7 +23,7 @@ import { ArchiveList } from "../../components/archive";
 import { Alert, Badge, StatusPill, TimelineStep } from "../../components/status";
 import { defaultBaseUrl, demoPassword, demoViews, emptyTimeline, sessionKey } from "../../config/appConfig";
 import { parseResponse, responseMessage } from "../../utils/api";
-import { compactTimestamp, delay, displayStatus, parseRecordDate, toneClass } from "../../utils/format";
+import { compactTimestamp, delay, displayStatus, parseRecordDate, sortRecordsByDate, toneClass } from "../../utils/format";
 import { readStoredSession } from "../../utils/session";
 
 export function DemoDashboard() {
@@ -31,11 +34,13 @@ export function DemoDashboard() {
   const [ready, setReady] = useState(null);
   const [documents, setDocuments] = useState([]);
   const [exams, setExams] = useState([]);
+  const [activities, setActivities] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [source, setSource] = useState("frontend-demo");
   const [timeline, setTimeline] = useState(emptyTimeline);
   const [lastResponse, setLastResponse] = useState(null);
   const [lastDocumentId, setLastDocumentId] = useState("");
+  const [selectedRecord, setSelectedRecord] = useState(null);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -58,9 +63,30 @@ export function DemoDashboard() {
     const response = await fetch(apiPath(path), options);
     const parsed = await parseResponse(response);
     if (!parsed.ok) {
-      throw new Error(responseMessage(options.method || "GET", path, parsed.status, parsed.body, apiBaseUrl));
+      const error = new Error(responseMessage(options.method || "GET", path, parsed.status, parsed.body, apiBaseUrl));
+      error.status = parsed.status;
+      error.body = parsed.body;
+      throw error;
     }
     return parsed.body;
+  }
+
+  function isAuthError(err) {
+    const text = `${err?.message || ""} ${typeof err?.body === "string" ? err.body : JSON.stringify(err?.body || "")}`.toLowerCase();
+    return err?.status === 401 || text.includes("invalid token") || text.includes("unauthorized") || text.includes("jwt");
+  }
+
+  function clearDemoSession() {
+    window.localStorage.removeItem(sessionKey);
+    setSession(null);
+    setDocuments([]);
+    setExams([]);
+    setActivities([]);
+  }
+
+  function showSessionRequiredNotice() {
+    setError("");
+    setNotice("Demo arşivi ve doküman gönderimi JWT ile korunur. Devam etmek için sol paneldeki Oturum başlat butonuna tıkla.");
   }
 
   async function refreshStatus() {
@@ -74,7 +100,12 @@ export function DemoDashboard() {
         try {
           await loadArchive(session.token);
         } catch (archiveErr) {
-          setError(archiveErr.message);
+          if (isAuthError(archiveErr)) {
+            clearDemoSession();
+            showSessionRequiredNotice();
+          } else {
+            setError(archiveErr.message);
+          }
         }
       }
     } catch (err) {
@@ -90,7 +121,7 @@ export function DemoDashboard() {
     setBusy("session");
     setError("");
     setNotice("");
-    const email = session?.email || `demo-${Date.now()}@examflow.local`;
+    const email = session?.token ? `demo-${Date.now()}@examflow.local` : session?.email || `demo-${Date.now()}@examflow.local`;
     const displayName = "Demo User";
 
     try {
@@ -129,24 +160,27 @@ export function DemoDashboard() {
 
   async function loadArchive(token = session?.token) {
     if (!token) {
-      throw new Error("Arşiv kayıtlarını görmek için önce demo oturumu başlatılmalı.");
+      return { documents: [], exams: [], activities: [] };
     }
 
     const headers = { Authorization: `Bearer ${token}` };
-    const [documentBody, examBody] = await Promise.all([
+    const [documentBody, examBody, activityBody] = await Promise.all([
       request("/documents", { headers }),
       request("/exams", { headers }),
+      request("/activity", { headers }),
     ]);
     const nextDocuments = documentBody.documents || [];
     const nextExams = examBody.exams || [];
+    const nextActivities = activityBody.activities || [];
     setDocuments(nextDocuments);
     setExams(nextExams);
-    return { documents: nextDocuments, exams: nextExams };
+    setActivities(nextActivities);
+    return { documents: nextDocuments, exams: nextExams, activities: nextActivities };
   }
 
   async function refreshArchive(token = session?.token) {
     if (!token) {
-      setError("Arşiv kayıtlarını görmek için önce demo oturumu başlatılmalı.");
+      showSessionRequiredNotice();
       return null;
     }
 
@@ -155,7 +189,12 @@ export function DemoDashboard() {
     try {
       return await loadArchive(token);
     } catch (err) {
-      setError(err.message);
+      if (isAuthError(err)) {
+        clearDemoSession();
+        showSessionRequiredNotice();
+      } else {
+        setError(err.message);
+      }
       return null;
     } finally {
       setBusy("");
@@ -234,7 +273,12 @@ export function DemoDashboard() {
       setActiveView("dashboard");
     } catch (err) {
       setStep("failed", "failed");
-      setError(err.message);
+      if (isAuthError(err)) {
+        clearDemoSession();
+        showSessionRequiredNotice();
+      } else {
+        setError(err.message);
+      }
     } finally {
       setBusy("");
     }
@@ -245,12 +289,29 @@ export function DemoDashboard() {
     setSession(null);
     setDocuments([]);
     setExams([]);
+    setActivities([]);
     setLastResponse(null);
     setLastDocumentId("");
     setNotice("");
     setError("");
     resetTimeline();
     setActiveView("dashboard");
+    setSelectedRecord(null);
+  }
+
+  function openDocumentDetail(document) {
+    setSelectedRecord(document);
+    setActiveView("document-detail");
+  }
+
+  function openExamDetail(exam) {
+    setSelectedRecord(exam);
+    setActiveView("exam-detail");
+  }
+
+  function backToArchive(view) {
+    setSelectedRecord(null);
+    setActiveView(view);
   }
 
   useEffect(() => {
@@ -285,7 +346,15 @@ export function DemoDashboard() {
                 const Icon = view.icon;
                 const active = activeView === view.id;
                 return (
-                  <button key={view.id} className={`btn ${active ? "btn-primary" : "btn-secondary"}`} type="button" onClick={() => setActiveView(view.id)}>
+                  <button
+                    key={view.id}
+                    className={`btn ${active ? "btn-primary" : "btn-secondary"}`}
+                    type="button"
+                    onClick={() => {
+                      setSelectedRecord(null);
+                      setActiveView(view.id);
+                    }}
+                  >
                     <Icon className="h-4 w-4" />
                     {view.label}
                   </button>
@@ -333,6 +402,7 @@ export function DemoDashboard() {
             busy={busy}
             empty="Bu kullanıcı için henüz doküman kaydı bulunamadı."
             icon={FileText}
+            onOpenRecord={openDocumentDetail}
             onRefresh={() => refreshArchive()}
             onStart={startDemoSession}
             records={documents}
@@ -346,12 +416,21 @@ export function DemoDashboard() {
             busy={busy}
             empty="Bu kullanıcı için henüz sınav kaydı bulunamadı."
             icon={ClipboardList}
+            onOpenRecord={openExamDetail}
             onRefresh={() => refreshArchive()}
             onStart={startDemoSession}
             records={exams}
             session={session}
             title="Sınav kayıtları"
           />
+        ) : null}
+
+        {activeView === "document-detail" ? (
+          <DemoDocumentDetail activities={activities} document={selectedRecord} exams={exams} onBack={() => backToArchive("documents")} onOpenExam={openExamDetail} />
+        ) : null}
+
+        {activeView === "exam-detail" ? (
+          <DemoExamDetail exam={selectedRecord} documents={documents} onBack={() => backToArchive("exams")} onOpenDocument={openDocumentDetail} />
         ) : null}
       </div>
     </main>
@@ -556,7 +635,7 @@ function Metric({ label, value, tone }) {
   );
 }
 
-function ArchiveView({ busy, empty, icon: Icon, onRefresh, onStart, records, session, title }) {
+function ArchiveView({ busy, empty, icon: Icon, onOpenRecord, onRefresh, onStart, records, session, title }) {
   if (!session?.token) {
     return (
       <section className="panel glass-grid p-6">
@@ -592,9 +671,350 @@ function ArchiveView({ busy, empty, icon: Icon, onRefresh, onStart, records, ses
           </button>
         </div>
       </div>
-      <ArchiveList records={records} empty={empty} />
+      <ArchiveList records={records} empty={empty} onSelectRecord={onOpenRecord} />
     </section>
   );
+}
+
+function DemoDocumentDetail({ activities = [], document, exams, onBack, onOpenExam }) {
+  if (!document) {
+    return <DemoMissingDetail icon={FileText} label="Doküman kaydı bulunamadı." onBack={onBack} />;
+  }
+
+  const linkedExams = exams.filter((exam) => exam.documentId === document.documentId || exam.documentId === document.id);
+  const documentActivities = sortRecordsByDate(activities.filter((event) => event.documentId === document.documentId || event.documentId === document.id));
+
+  return (
+    <div className="grid gap-5">
+      <section className="panel glass-grid p-5">
+        <button className="btn btn-secondary mb-5" type="button" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4" />
+          Doküman kayıtlarına dön
+        </button>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <p className="label">Demo doküman detayı</p>
+            <h2 className="mt-2 break-words text-2xl font-black text-ink">{document.fileName || document.title || "İsimsiz doküman"}</h2>
+            <p className="mt-2 break-all text-sm leading-6 text-muted">{document.documentId || document.id}</p>
+          </div>
+          <Badge tone={document.status}>{displayStatus(document.status || "recorded")}</Badge>
+        </div>
+      </section>
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(280px,0.75fr)_minmax(0,1.25fr)]">
+        <section className="panel p-5">
+          <p className="label">Metadata</p>
+          <h3 className="section-title">Kayıt özeti</h3>
+          <DemoMetaGrid
+            rows={[
+              ["documentId", document.documentId || document.id || "-"],
+              ["Dosya adı", document.fileName || "-"],
+              ["Kaynak", document.source || "-"],
+              ["Validation", displayStatus(document.validationResult || "-")],
+              ["Oluşturulma", parseRecordDate(document.createdAt)],
+              ["Güncelleme", parseRecordDate(document.updatedAt)],
+            ]}
+          />
+        </section>
+
+        <section className="panel p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="label">Bağlı sınavlar</p>
+              <h3 className="section-title">Bu dokümandan üretilen kayıtlar</h3>
+            </div>
+            <Badge tone={linkedExams.length ? "ok" : "idle"}>{linkedExams.length} sınav</Badge>
+          </div>
+
+          {linkedExams.length ? (
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {linkedExams.map((exam) => (
+                <button
+                  className="rounded-lg border border-space-line bg-black/25 p-4 text-left transition hover:border-neon-cyan/50 hover:bg-neon-cyan/10"
+                  key={exam.id || exam.examId || exam.documentId}
+                  onClick={() => onOpenExam(exam)}
+                  type="button"
+                >
+                  <div className="flex items-start gap-3">
+                    <ClipboardList className="mt-1 h-5 w-5 shrink-0 text-neon-cyan" />
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-black text-ink">{exam.title || "Oluşturulan sınav"}</p>
+                      <p className="mt-1 break-all text-xs text-muted">{exam.examId || exam.id || exam.documentId}</p>
+                      <p className="mt-2 text-xs text-muted">{parseRecordDate(exam.updatedAt || exam.createdAt)}</p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-5 rounded-lg border border-dashed border-space-line bg-black/20 p-4 text-sm text-muted">
+              Bu dokümana bağlı sınav kaydı henüz görünmüyor. Event akışı tamamlandığında burada listelenecek.
+            </p>
+          )}
+        </section>
+
+        <DemoDocumentActivityPanel activities={documentActivities} />
+      </div>
+    </div>
+  );
+}
+
+function DemoDocumentActivityPanel({ activities }) {
+  return (
+    <section className="panel p-5 xl:col-span-2">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="label">İşlem geçmişi</p>
+          <h3 className="section-title">Bu dokümanın event akışı</h3>
+        </div>
+        <Badge tone={activities.length ? "ok" : "idle"}>{activities.length} olay</Badge>
+      </div>
+
+      {activities.length ? (
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {activities.map((event) => (
+            <article className="rounded-lg border border-space-line bg-black/25 p-4" key={event.id || `${event.eventId}-${event.eventType}-${event.createdAt}`}>
+              <div className="flex items-start gap-3">
+                <Activity className="mt-1 h-5 w-5 shrink-0 text-neon-cyan" />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-black text-ink">{readableDemoActivityTitle(event)}</p>
+                    <Badge tone={event.status}>{displayStatus(event.status || "recorded")}</Badge>
+                  </div>
+                  <p className="mt-2 break-words text-xs leading-5 text-muted">{event.message || readableDemoActivityMessage(event)}</p>
+                  <p className="mt-2 text-xs text-muted">{parseRecordDate(event.createdAt || event.updatedAt)}</p>
+                  {event.error ? <p className="mt-2 rounded-lg border border-danger/40 bg-danger/10 p-3 text-xs text-danger">{event.error}</p> : null}
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-5 rounded-lg border border-dashed border-space-line bg-black/20 p-4 text-sm text-muted">
+          Bu doküman için işlem geçmişi henüz görünmüyor. Activity kayıtları geldiğinde API, Pub/Sub, Worker, Validation ve Exam adımları burada listelenecek.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function DemoExamDetail({ documents, exam, onBack, onOpenDocument }) {
+  if (!exam) {
+    return <DemoMissingDetail icon={ClipboardList} label="Sınav kaydı bulunamadı." onBack={onBack} />;
+  }
+
+  const linkedDocument = documents.find((document) => document.documentId === exam.documentId || document.id === exam.documentId);
+  const questions = getDemoQuestions(exam);
+  const cards = getDemoInfoCards(exam);
+
+  return (
+    <div className="grid gap-5">
+      <section className="panel glass-grid p-5">
+        <button className="btn btn-secondary mb-5" type="button" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4" />
+          Sınav kayıtlarına dön
+        </button>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <p className="label">Demo sınav detayı</p>
+            <h2 className="mt-2 break-words text-2xl font-black text-ink">{exam.title || "Oluşturulan sınav"}</h2>
+            <p className="mt-2 break-all text-sm leading-6 text-muted">{exam.examId || exam.id || exam.documentId}</p>
+          </div>
+          <Badge tone={exam.status}>{displayStatus(exam.status || "recorded")}</Badge>
+        </div>
+      </section>
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(280px,0.75fr)_minmax(0,1.25fr)]">
+        <aside className="grid content-start gap-5">
+          <section className="panel p-5">
+            <p className="label">Metadata</p>
+            <h3 className="section-title">Kayıt özeti</h3>
+            <DemoMetaGrid
+              rows={[
+                ["examId", exam.examId || exam.id || "-"],
+                ["documentId", exam.documentId || "-"],
+                ["Durum", displayStatus(exam.status || "recorded")],
+                ["Validation", displayStatus(exam.validationResult || "-")],
+                ["Oluşturulma", parseRecordDate(exam.createdAt)],
+                ["Güncelleme", parseRecordDate(exam.updatedAt)],
+              ]}
+            />
+          </section>
+
+          <section className="panel p-5">
+            <p className="label">Bağlı doküman</p>
+            <h3 className="section-title">Kaynak kayıt</h3>
+            {linkedDocument ? (
+              <button className="mt-4 w-full rounded-lg border border-space-line bg-black/25 p-4 text-left transition hover:border-neon-cyan/50 hover:bg-neon-cyan/10" type="button" onClick={() => onOpenDocument(linkedDocument)}>
+                <FileText className="mb-3 h-5 w-5 text-neon-cyan" />
+                <p className="break-words text-sm font-black text-ink">{linkedDocument.fileName || linkedDocument.title || "Doküman"}</p>
+                <p className="mt-1 break-all text-xs text-muted">{linkedDocument.documentId || linkedDocument.id}</p>
+              </button>
+            ) : (
+              <p className="mt-4 rounded-lg border border-dashed border-space-line bg-black/20 p-4 text-sm text-muted">Kaynak doküman bu demo arşivinde bulunamadı.</p>
+            )}
+          </section>
+        </aside>
+
+        <main className="grid gap-5">
+          <section className="panel p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="label">Soru önizlemesi</p>
+                <h3 className="section-title">Üretilen sorular</h3>
+              </div>
+              <Badge tone={questions.length ? "ok" : "idle"}>{questions.length} soru</Badge>
+            </div>
+
+            {questions.length ? (
+              <div className="mt-5 grid gap-3">
+                {questions.slice(0, 5).map((question, index) => (
+                  <DemoQuestionCard key={`${question.question || question.prompt || index}-${index}`} index={index} question={question} />
+                ))}
+              </div>
+            ) : (
+              <p className="mt-5 rounded-lg border border-dashed border-space-line bg-black/20 p-4 text-sm text-muted">Bu sınav kaydında soru içeriği henüz yok; metadata kaydı görüntüleniyor.</p>
+            )}
+          </section>
+
+          <section className="panel p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="label">Bilgi kartları</p>
+                <h3 className="section-title">Çalışma özeti</h3>
+              </div>
+              <Badge tone={cards.length ? "ok" : "idle"}>{cards.length} kart</Badge>
+            </div>
+
+            {cards.length ? (
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                {cards.slice(0, 4).map((card, index) => (
+                  <article className="rounded-lg border border-space-line bg-black/25 p-4" key={`${card.title || index}-${index}`}>
+                    <BookOpen className="mb-3 h-5 w-5 text-neon-cyan" />
+                    <p className="break-words text-sm font-black text-ink">{card.title || `Bilgi kartı ${index + 1}`}</p>
+                    <p className="mt-2 break-words text-sm leading-6 text-muted">{card.summary || card.text || "-"}</p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-5 rounded-lg border border-dashed border-space-line bg-black/20 p-4 text-sm text-muted">Bu sınav kaydında bilgi kartı içeriği henüz yok.</p>
+            )}
+          </section>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function DemoMissingDetail({ icon: Icon, label, onBack }) {
+  return (
+    <section className="panel p-6">
+      <button className="btn btn-secondary mb-5" type="button" onClick={onBack}>
+        <ArrowLeft className="h-4 w-4" />
+        Arşive dön
+      </button>
+      <div className="rounded-lg border border-dashed border-space-line bg-black/20 p-8 text-center">
+        <Icon className="mx-auto h-10 w-10 text-muted" />
+        <p className="mt-4 text-sm font-bold text-ink">{label}</p>
+      </div>
+    </section>
+  );
+}
+
+function DemoMetaGrid({ rows }) {
+  return (
+    <dl className="mt-5 grid gap-3">
+      {rows.map(([label, value]) => (
+        <div className="rounded-lg border border-space-line bg-black/20 p-3" key={label}>
+          <dt className="text-xs font-bold uppercase text-muted">{label}</dt>
+          <dd className="mt-1 break-words text-sm font-bold text-ink">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function DemoQuestionCard({ index, question }) {
+  const normalized = normalizeDemoQuestion(question);
+
+  return (
+    <article className="rounded-lg border border-space-line bg-black/25 p-4">
+      <div className="flex gap-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/10 text-sm font-black text-neon-cyan">{index + 1}</span>
+        <div className="min-w-0">
+          <p className="break-words text-sm font-black text-ink">{normalized.question}</p>
+          <div className="mt-3 grid gap-2">
+            {normalized.options.slice(0, 4).map((option, optionIndex) => {
+              const letter = String.fromCharCode(65 + optionIndex);
+              const isCorrect = letter === normalized.correctAnswer;
+              return (
+                <div className={`flex gap-2 rounded-lg border p-2 text-sm ${isCorrect ? "border-neon-green/40 bg-neon-green/10 text-ink" : "border-space-line bg-black/20 text-muted"}`} key={`${letter}-${option}`}>
+                  <span className="font-black">{letter}</span>
+                  <span className="break-words">{option}</span>
+                  {isCorrect ? <CheckCircle2 className="ml-auto h-4 w-4 shrink-0 text-neon-green" /> : null}
+                </div>
+              );
+            })}
+          </div>
+          {normalized.explanation ? <p className="mt-3 break-words text-xs leading-5 text-muted">{normalized.explanation}</p> : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function getDemoQuestions(exam) {
+  const candidates = [exam.questions, exam.multipleChoiceQuestions, exam.questionCards, exam.items, exam.content?.questions, exam.generatedContent?.questions, exam.result?.questions];
+  return candidates.find((candidate) => Array.isArray(candidate) && candidate.length > 0) || [];
+}
+
+function getDemoInfoCards(exam) {
+  const candidates = [exam.infoCards, exam.cards, exam.studyCards, exam.content?.infoCards, exam.generatedContent?.infoCards, exam.result?.infoCards];
+  return candidates.find((candidate) => Array.isArray(candidate) && candidate.length > 0) || [];
+}
+
+function normalizeDemoQuestion(question) {
+  const options = question.options || question.choices || question.answers || [];
+  const normalizedOptions = Array.isArray(options) && options.length ? options : ["Seçenek A", "Seçenek B", "Seçenek C", "Seçenek D"];
+  return {
+    correctAnswer: resolveDemoAnswerLetter(question.correctAnswer ?? question.answer ?? question.correctOption, normalizedOptions),
+    explanation: question.explanation || question.rationale || "",
+    options: normalizedOptions,
+    question: question.question || question.prompt || question.text || "Soru metni bulunamadı.",
+  };
+}
+
+function resolveDemoAnswerLetter(answer, options) {
+  if (typeof answer === "number") return String.fromCharCode(65 + answer);
+  const text = String(answer || "").trim();
+  const upper = text.toUpperCase();
+  if (["A", "B", "C", "D"].includes(upper)) return upper;
+  const optionIndex = options.findIndex((option) => String(option).trim().toLowerCase() === text.toLowerCase());
+  return optionIndex >= 0 ? String.fromCharCode(65 + optionIndex) : upper || "-";
+}
+
+function readableDemoActivityTitle(event) {
+  const status = String(event.status || "").toLowerCase();
+  const type = String(event.eventType || "").toLowerCase();
+  if (status === "received" || type.includes("received")) return "Doküman alındı";
+  if (status === "published" || type.includes("published")) return "Pub/Sub event yayınlandı";
+  if (status === "processing" || type.includes("processing")) return "Worker işleme başladı";
+  if (status === "processed" || type.includes("processed")) return "Doküman işleme tamamlandı";
+  if (status === "validated" || type.includes("validated")) return "Doğrulama tamamlandı";
+  if (status === "failed" || type.includes("failed")) return "Akış hata aldı";
+  if (type.includes("exam")) return "Sınav kaydı oluşturuldu";
+  return "Activity kaydı";
+}
+
+function readableDemoActivityMessage(event) {
+  const status = String(event.status || "").toLowerCase();
+  if (status === "received") return "API Service doküman isteğini aldı.";
+  if (status === "published") return "Doküman event'i Pub/Sub hattına yayınlandı.";
+  if (status === "processing") return "Worker Service dokümanı işliyor.";
+  if (status === "processed") return "Doküman işleme adımı tamamlandı.";
+  if (status === "validated") return "Validation sonucu üretildi ve sınav kaydı hazırlandı.";
+  if (status === "failed") return "Bu dokümanın event akışında hata oluştu.";
+  return "Bu dokümana ait activity kaydı oluşturuldu.";
 }
 
 function LastResponse({ lastResponse }) {

@@ -11,16 +11,82 @@ import {
   User,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import { ArchiveList } from "../../components/archive";
-import { Alert, Badge, HealthRow } from "../../components/status";
+import { Alert, Badge } from "../../components/status";
 import { appNav, defaultBaseUrl, demoPassword, sessionKey } from "../../config/appConfig";
 import { DocumentArchivePage, DocumentDetailPage } from "../documents";
 import { ExamArchivePage, ExamDetailPage } from "../exams";
 import { parseResponse, responseMessage } from "../../utils/api";
 import { compactTimestamp, delay, displayStatus, parseRecordDate, sortRecordsByDate, toneClass } from "../../utils/format";
 import { readStoredSession } from "../../utils/session";
+
+export function LoginPage() {
+  const apiBaseUrl = defaultBaseUrl;
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const navigate = useNavigate();
+  const location = useLocation();
+  const redirectTo = location.state?.from?.pathname || "/app/dashboard";
+
+  function apiPath(path) {
+    return `${apiBaseUrl.replace(/\/+$/, "")}${path}`;
+  }
+
+  async function authRequest(path, options = {}) {
+    const response = await fetch(apiPath(path), options);
+    const parsed = await parseResponse(response);
+    if (!parsed.ok) {
+      throw new Error(responseMessage(options.method || "GET", path, parsed.status, parsed.body, apiBaseUrl));
+    }
+    return parsed.body;
+  }
+
+  async function handleAuth(values) {
+    setBusy("auth");
+    setError("");
+    try {
+      if (values.mode === "register") {
+        await authRequest("/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: values.email,
+            displayName: values.displayName || "ExamFlow User",
+            password: values.password,
+          }),
+        });
+      }
+
+      const login = await authRequest("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: values.email, password: values.password }),
+      });
+      const nextSession = { email: values.email, token: login.token, user: login.user };
+      window.localStorage.setItem(sessionKey, JSON.stringify(nextSession));
+      navigate(redirectTo, { replace: true });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  useEffect(() => {
+    if (readStoredSession()?.token) {
+      navigate(redirectTo, { replace: true });
+      return;
+    }
+  }, []);
+
+  return (
+    <main className="login-shell">
+      <AuthPanel busy={busy} error={error} onSubmit={handleAuth} />
+    </main>
+  );
+}
 
 export function ProductApp() {
   const apiBaseUrl = defaultBaseUrl;
@@ -30,6 +96,7 @@ export function ProductApp() {
   const [documents, setDocuments] = useState([]);
   const [exams, setExams] = useState([]);
   const [activities, setActivities] = useState([]);
+  const [adminUsers, setAdminUsers] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [source, setSource] = useState("app-dashboard");
   const [questionCount, setQuestionCount] = useState(5);
@@ -41,6 +108,7 @@ export function ProductApp() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const navigate = useNavigate();
+  const isAdmin = isAdminSession(session);
 
   function apiPath(path) {
     return `${apiBaseUrl.replace(/\/+$/, "")}${path}`;
@@ -241,39 +309,6 @@ export function ProductApp() {
     }
   }
 
-  async function handleAuth(values) {
-    setBusy("auth");
-    setError("");
-    try {
-      if (values.mode === "register") {
-        await appRequest("/auth/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: values.email,
-            displayName: values.displayName || "ExamFlow User",
-            password: values.password,
-          }),
-        });
-      }
-
-      const login = await appRequest("/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: values.email, password: values.password }),
-      });
-      const nextSession = { email: values.email, token: login.token, user: login.user };
-      setSession(nextSession);
-      window.localStorage.setItem(sessionKey, JSON.stringify(nextSession));
-      await loadArchive(nextSession.token);
-      navigate("/app/dashboard", { replace: true });
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy("");
-    }
-  }
-
   function logout() {
     window.localStorage.removeItem(sessionKey);
     setSession(null);
@@ -282,7 +317,73 @@ export function ProductApp() {
     setActivities([]);
     setLastProcess(null);
     setProcessNotice("");
-    navigate("/app", { replace: true });
+    navigate("/login", { replace: true });
+  }
+
+  async function loadAdminUsers(token = session?.token) {
+    if (!token || !isAdmin) return [];
+    setBusy("admin-users");
+    setError("");
+    try {
+      const body = await appRequest("/admin/users", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const nextUsers = body.users || [];
+      setAdminUsers(nextUsers);
+      return nextUsers;
+    } catch (err) {
+      setError(err.message);
+      return [];
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function createAdminUser(values) {
+    if (!session?.token || !isAdmin) return false;
+    setBusy("admin-create-user");
+    setError("");
+    try {
+      await appRequest("/admin/users", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(values),
+      });
+      await loadAdminUsers(session.token);
+      return true;
+    } catch (err) {
+      setError(err.message);
+      return false;
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function updateProfile(values) {
+    setBusy("profile");
+    setError("");
+    try {
+      const body = await appRequest("/auth/me", {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(values),
+      });
+      const nextSession = { email: body.user.email, token: body.token || session.token, user: body.user };
+      setSession(nextSession);
+      window.localStorage.setItem(sessionKey, JSON.stringify(nextSession));
+      return true;
+    } catch (err) {
+      setError(err.message);
+      return false;
+    } finally {
+      setBusy("");
+    }
   }
 
   useEffect(() => {
@@ -292,6 +393,9 @@ export function ProductApp() {
   useEffect(() => {
     if (session?.token) {
       loadArchive(session.token);
+      if (isAdminSession(session)) {
+        loadAdminUsers(session.token);
+      }
     }
   }, [session?.token]);
 
@@ -306,12 +410,7 @@ export function ProductApp() {
   }, [session?.token, lastProcess?.status, lastProcess?.documentId, lastProcess?.payload?.documentId]);
 
   if (!session?.token) {
-    return (
-      <main className="app-auth-shell">
-        <AuthPanel busy={busy} error={error} onSubmit={handleAuth} />
-        <AuthAside health={health} ready={ready} onRefresh={refreshStatus} busy={busy} />
-      </main>
-    );
+    return <Navigate to="/login" replace />;
   }
 
   return (
@@ -326,19 +425,11 @@ export function ProductApp() {
         </div>
 
         <nav className="mt-8 grid gap-2" aria-label="Uygulama menüsü">
-          {appNav.map((item) => (
+          {appNav.filter((item) => item.to !== "/app/admin" || isAdmin).map((item) => (
             <AppNavItem key={item.to} item={item} />
           ))}
         </nav>
 
-        <div className="mt-auto rounded-lg border border-space-line bg-black/25 p-4">
-          <p className="label">Giriş yapan kullanıcı</p>
-          <p className="mt-1 truncate text-sm font-bold text-ink">{session.user?.displayName || session.email}</p>
-          <button className="btn btn-secondary mt-4 w-full" type="button" onClick={logout}>
-            <User className="h-4 w-4" />
-            Çıkış yap
-          </button>
-        </div>
       </aside>
 
       <section className="app-main">
@@ -347,10 +438,26 @@ export function ProductApp() {
             <p className="label">Authenticated frontend</p>
             <h2 className="text-2xl font-black text-ink">ExamFlow kullanıcı paneli</h2>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={() => loadArchive()} disabled={busy === "archive"}>
-            {busy === "archive" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Arşivi yenile
-          </button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
+            <button className="btn btn-secondary" type="button" onClick={() => loadArchive()} disabled={busy === "archive"}>
+              {busy === "archive" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Arşivi yenile
+            </button>
+            <div className="flex min-w-[320px] items-center gap-4 rounded-lg border border-space-line bg-black/25 px-4 py-3">
+              <div className="min-w-0">
+                <p className="label">Giriş yapan kullanıcı</p>
+                <p className="mt-1 truncate text-sm font-bold text-ink">{session.user?.displayName || session.email}</p>
+              </div>
+              <button className="btn btn-secondary ml-auto" type="button" onClick={() => navigate("/app/profile")}>
+                <User className="h-4 w-4" />
+                Profil
+              </button>
+              <button className="btn btn-secondary" type="button" onClick={logout}>
+                <User className="h-4 w-4" />
+                Çıkış yap
+              </button>
+            </div>
+          </div>
         </header>
 
         {error ? <Alert tone="failed" message={error} /> : null}
@@ -371,7 +478,6 @@ export function ProductApp() {
                 ready={ready}
                 selectedFile={selectedFile}
                 setSelectedFile={setSelectedFile}
-                setSource={setSource}
                 source={source}
                 questionCount={questionCount}
                 setQuestionCount={setQuestionCount}
@@ -385,10 +491,30 @@ export function ProductApp() {
             }
           />
           <Route path="documents" element={<DocumentArchivePage busy={busy} documents={documents} />} />
-          <Route path="documents/:documentId" element={<DocumentDetailPage documents={documents} exams={exams} />} />
+          <Route path="documents/:documentId" element={<DocumentDetailPage activities={activities} documents={documents} exams={exams} />} />
           <Route path="exams" element={<ExamArchivePage busy={busy} exams={exams} />} />
           <Route path="exams/:examKey" element={<ExamDetailPage exams={exams} />} />
-          <Route path="activity" element={<ActivityWorkspace activities={activities} />} />
+          <Route path="profile" element={<ProfileWorkspace busy={busy} onSubmit={updateProfile} session={session} />} />
+          <Route
+            path="admin"
+            element={
+              isAdmin ? (
+                <AdminWorkspace
+                  activities={activities}
+                  busy={busy}
+                  documents={documents}
+                  exams={exams}
+                  health={health}
+                  onCreateUser={createAdminUser}
+                  onRefreshUsers={() => loadAdminUsers()}
+                  ready={ready}
+                  users={adminUsers}
+                />
+              ) : (
+                <Navigate to="/app/dashboard" replace />
+              )
+            }
+          />
           <Route path="*" element={<Navigate to="dashboard" replace />} />
         </Routes>
       </section>
@@ -409,12 +535,13 @@ function AuthPanel({ busy, error, onSubmit }) {
 
   return (
     <section className="auth-card">
-      <div className="brand-mark">E</div>
-      <p className="label mt-4">ExamFlow App</p>
-      <h1 className="mt-2 text-2xl font-black text-ink">Akıllı sınav arşivine giriş yap.</h1>
-      <p className="mt-2 text-sm leading-6 text-muted">
-        Bu ekran, kullanıcı girişi yapılan ürün deneyiminin başlangıcıdır. Giriş yaptıktan sonra doküman ve sınav kayıtları aynı panelden izlenir.
-      </p>
+      <div className="flex items-center gap-3">
+        <div className="brand-mark">E</div>
+        <div>
+          <p className="label">ExamFlow</p>
+          <h1 className="text-xl font-black text-ink">Hesabına giriş yap</h1>
+        </div>
+      </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg border border-space-line bg-black/20 p-1">
         <button className={`segmented-btn ${mode === "login" ? "active" : ""}`} type="button" onClick={() => setMode("login")}>
@@ -442,37 +569,11 @@ function AuthPanel({ busy, error, onSubmit }) {
         </label>
         <button className="btn btn-primary" type="submit" disabled={busy === "auth"}>
           {busy === "auth" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-          {mode === "login" ? "Kullanıcı paneline gir" : "Kayıt ol ve panele gir"}
+          {mode === "login" ? "Giriş yap" : "Hesap oluştur"}
         </button>
       </form>
 
       {error ? <p className="mt-3 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{error}</p> : null}
-    </section>
-  );
-}
-
-function AuthAside({ busy, health, onRefresh, ready }) {
-  return (
-    <section className="auth-aside panel glass-grid p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="label">Canlı sistem</p>
-          <h2 className="section-title">Backend bağlantısı</h2>
-        </div>
-        <button className="btn btn-secondary" type="button" onClick={onRefresh} disabled={busy === "status"}>
-          {busy === "status" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          Durumu yenile
-        </button>
-      </div>
-      <div className="mt-5 grid gap-3">
-        <HealthRow label="/health" value={displayStatus(health?.status || "pending")} tone={health?.status} />
-        <HealthRow label="/ready" value={displayStatus(ready?.status || "pending")} tone={ready?.status} />
-        <HealthRow label="database" value={displayStatus(ready?.databaseStatus || "unknown")} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
-      </div>
-      <div className="mt-5 rounded-lg border border-neon-cyan/30 bg-neon-cyan/10 p-4">
-        <p className="text-sm font-bold text-ink">Sonraki ekranlar</p>
-        <p className="mt-2 text-sm leading-6 text-muted">Document detail, exam detail, favorites ve tag ekranları bu kullanıcı panelinin üzerine adım adım eklenecek.</p>
-      </div>
     </section>
   );
 }
@@ -498,7 +599,6 @@ function AppOverview({
   ready,
   selectedFile,
   setSelectedFile,
-  setSource,
   source,
   questionCount,
   setQuestionCount,
@@ -520,20 +620,17 @@ function AppOverview({
       <section className="app-hero">
         <div>
           <p className="label">Genel bakış</p>
-          <h3 className="mt-2 text-3xl font-black text-ink">Doküman yükle, event akışını başlat, oluşan sınavı aynı ekranda izle.</h3>
+          <h3 className="mt-2 text-3xl font-black text-ink">Doküman yükle, sınavını oluştur, sonucu aynı ekranda izle.</h3>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
-            Bu panel, giriş yapan kullanıcının arşivini ve son işlem sonucunu canlı API üzerinden okur. Ana akış hâlâ API Service, Pub/Sub,
-            Worker Service, Validation Service, Exam Service ve MongoDB hattı üzerinden ilerler.
+            Ders notlarını yükleyerek sınav soruları ve çalışma kartları oluşturabilirsin. Geçmiş doküman ve sınavlarına arşivden ulaşabilirsin.
           </p>
         </div>
-        <Badge tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status}>MongoDB {displayStatus(ready?.databaseStatus || "unknown")}</Badge>
       </section>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3">
         <InsightCard icon={FileText} title="Toplam doküman" value={documents.length} tone="ok" detail={latestDocument?.fileName || "Henüz kayıt yok"} />
         <InsightCard icon={ClipboardList} title="Toplam sınav" value={exams.length} tone="ready" detail={latestExam?.title || latestExam?.documentId || "Henüz kayıt yok"} />
         <InsightCard icon={Activity} title="Son işlem" value={displayStatus(lastStatus)} tone={lastStatus} detail={lastProcess?.stage || "Yeni doküman bekleniyor"} />
-        <InsightCard icon={Database} title="Database" value={displayStatus(ready?.databaseStatus || "unknown")} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(320px,0.95fr)_minmax(420px,1.05fr)]">
@@ -550,7 +647,6 @@ function AppOverview({
           setInfoCardCount={setInfoCardCount}
           setQuestionCount={setQuestionCount}
           setSelectedFile={setSelectedFile}
-          setSource={setSource}
           source={source}
         />
         <DashboardResultPanel lastProcess={lastProcess} latestDocument={latestDocument} latestExam={latestExam} notice={processNotice} />
@@ -577,7 +673,6 @@ function DashboardPublishPanel({
   setInfoCardCount,
   setQuestionCount,
   setSelectedFile,
-  setSource,
   source,
 }) {
   const isPublishing = busy === "publish";
@@ -604,11 +699,6 @@ function DashboardPublishPanel({
             accept=".pdf,.docx"
             onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
           />
-        </label>
-
-        <label className="block">
-          <span className="label">Kaynak etiketi</span>
-          <input className="field mt-1" value={source} onChange={(event) => setSource(event.target.value)} placeholder="app-dashboard" />
         </label>
 
         <div className="grid gap-4 sm:grid-cols-3">
@@ -693,12 +783,6 @@ function DashboardResultPanel({ lastProcess, latestDocument, latestExam, notice 
         <ResultRecordCard fallback="Henüz sınav sonucu yok." icon={ClipboardList} label="Sınav kaydı" record={examRecord} title={examRecord?.title || examRecord?.documentId} />
       </div>
 
-      {lastProcess?.payload ? (
-        <div className="mt-4 rounded-lg border border-space-line bg-black/30 p-4">
-          <p className="label">Gönderilen payload</p>
-          <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-muted">{JSON.stringify(lastProcess.payload, null, 2)}</pre>
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -887,6 +971,234 @@ function ActivityWorkspace({ activities }) {
   );
 }
 
+function ProfileWorkspace({ busy, onSubmit, session }) {
+  const [displayName, setDisplayName] = useState(session.user?.displayName || "");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [notice, setNotice] = useState("");
+
+  async function submit(event) {
+    event.preventDefault();
+    setNotice("");
+    const ok = await onSubmit({
+      displayName,
+      currentPassword,
+      newPassword,
+    });
+    if (ok) {
+      setCurrentPassword("");
+      setNewPassword("");
+      setNotice("Profil bilgileri güncellendi.");
+    }
+  }
+
+  return (
+    <div className="grid gap-5">
+      <section className="app-hero">
+        <div>
+          <p className="label">Profil</p>
+          <h3 className="mt-2 text-3xl font-black text-ink">Hesap bilgileri</h3>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">Adını ve şifreni buradan güncelleyebilirsin.</p>
+        </div>
+        <Badge tone="ok">{session.user?.status || "active"}</Badge>
+      </section>
+
+      {notice ? <Alert tone="ok" message={notice} /> : null}
+
+      <section className="panel p-5">
+        <form className="grid max-w-xl gap-4" onSubmit={submit}>
+          <label>
+            <span className="label">Email</span>
+            <input className="field mt-1" disabled value={session.email} />
+          </label>
+          <label>
+            <span className="label">Görünen ad</span>
+            <input className="field mt-1" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required />
+          </label>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label>
+              <span className="label">Mevcut şifre</span>
+              <input className="field mt-1" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+            </label>
+            <label>
+              <span className="label">Yeni şifre</span>
+              <input className="field mt-1" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+            </label>
+          </div>
+          <button className="btn btn-primary w-fit" type="submit" disabled={busy === "profile"}>
+            {busy === "profile" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+            Profili güncelle
+          </button>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function AdminWorkspace({ activities, busy, documents, exams, health, onCreateUser, onRefreshUsers, ready, users }) {
+  const [activeTab, setActiveTab] = useState("documents");
+  const tabs = [
+    { id: "users", label: "Kullanıcılar", count: users.length },
+    { id: "documents", label: "Dokümanlar", count: documents.length },
+    { id: "exams", label: "Sınavlar", count: exams.length },
+    { id: "activity", label: "İşlem geçmişi", count: activities.length },
+  ];
+
+  return (
+    <div className="grid gap-5">
+      <section className="app-hero">
+        <div>
+          <p className="label">Admin panel</p>
+          <h3 className="mt-2 text-3xl font-black text-ink">Kayıtlar ve teknik izleme</h3>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">Teknik metadata, event akışı, API durumu ve kayıt ayrıntıları bu alanda toplanır.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge tone={health?.status}>API {displayStatus(health?.status || "pending")}</Badge>
+          <Badge tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status}>MongoDB {displayStatus(ready?.databaseStatus || "unknown")}</Badge>
+        </div>
+      </section>
+
+      <section className="panel p-5">
+        <div className="mb-5 flex flex-wrap gap-2">
+          {tabs.map((tab) => (
+            <button className={`btn ${activeTab === tab.id ? "btn-primary" : "btn-secondary"}`} key={tab.id} type="button" onClick={() => setActiveTab(tab.id)}>
+              {tab.label}
+              <span className="rounded-md bg-black/25 px-2 py-0.5 text-xs">{tab.count}</span>
+            </button>
+          ))}
+        </div>
+
+        {activeTab === "users" ? <AdminUsersPanel busy={busy} onCreateUser={onCreateUser} onRefreshUsers={onRefreshUsers} users={users} /> : null}
+        {activeTab === "documents" ? <AdminRecordList records={documents} type="document" /> : null}
+        {activeTab === "exams" ? <AdminRecordList records={exams} type="exam" /> : null}
+        {activeTab === "activity" ? <AdminActivityList activities={activities} /> : null}
+      </section>
+    </div>
+  );
+}
+
+function AdminUsersPanel({ busy, onCreateUser, onRefreshUsers, users }) {
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
+  const [notice, setNotice] = useState("");
+
+  async function submit(event) {
+    event.preventDefault();
+    setNotice("");
+    const ok = await onCreateUser({ email, displayName, password });
+    if (ok) {
+      setEmail("");
+      setDisplayName("");
+      setPassword("");
+      setNotice("Kullanıcı oluşturuldu.");
+    }
+  }
+
+  return (
+    <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <section className="rounded-lg border border-space-line bg-black/25 p-4">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <p className="label">Kullanıcı yönetimi</p>
+            <h3 className="section-title">Yeni kullanıcı</h3>
+          </div>
+          <button className="btn btn-secondary" type="button" onClick={onRefreshUsers} disabled={busy === "admin-users"}>
+            {busy === "admin-users" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Yenile
+          </button>
+        </div>
+        {notice ? <Alert tone="ok" message={notice} /> : null}
+        <form className="grid gap-3" onSubmit={submit}>
+          <label>
+            <span className="label">Email</span>
+            <input className="field mt-1" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          </label>
+          <label>
+            <span className="label">Görünen ad</span>
+            <input className="field mt-1" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required />
+          </label>
+          <label>
+            <span className="label">Geçici şifre</span>
+            <input className="field mt-1" type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} required />
+          </label>
+          <button className="btn btn-primary" type="submit" disabled={busy === "admin-create-user"}>
+            {busy === "admin-create-user" ? <Loader2 className="h-4 w-4 animate-spin" /> : <User className="h-4 w-4" />}
+            Kullanıcı ekle
+          </button>
+        </form>
+      </section>
+
+      <section className="grid content-start gap-3">
+        {users.length ? (
+          users.map((user) => (
+            <article className="rounded-lg border border-space-line bg-black/25 p-4" key={user.id || user.email}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-black text-ink">{user.displayName || user.email}</p>
+                  <p className="mt-1 break-all text-xs text-muted">{user.email}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge tone={user.role === "admin" ? "ready" : "idle"}>{user.role || "user"}</Badge>
+                  <Badge tone={user.status}>{displayStatus(user.status || "active")}</Badge>
+                </div>
+              </div>
+            </article>
+          ))
+        ) : (
+          <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">Kullanıcı kaydı bulunamadı.</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function AdminRecordList({ records, type }) {
+  if (!records.length) {
+    return <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">Henüz kayıt yok.</p>;
+  }
+
+  return (
+    <div className="grid gap-3">
+      {records.map((record) => (
+        <article className="rounded-lg border border-space-line bg-black/25 p-4" key={record.id || record.examId || `${record.documentId}-${record.createdAt}`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="label">{type === "document" ? "Doküman kaydı" : "Sınav kaydı"}</p>
+              <h4 className="mt-1 break-words text-base font-black text-ink">{record.title || record.fileName || record.documentId || record.examId}</h4>
+              <p className="mt-1 break-all text-xs text-muted">{record.documentId || record.examId || record.id}</p>
+            </div>
+            <Badge tone={record.status}>{displayStatus(record.status || "recorded")}</Badge>
+          </div>
+          <pre className="mt-4 max-h-52 overflow-auto rounded-lg border border-space-line bg-black/35 p-3 text-xs leading-5 text-muted">{JSON.stringify(record, null, 2)}</pre>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function AdminActivityList({ activities }) {
+  if (!activities.length) {
+    return <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">Henüz işlem kaydı yok.</p>;
+  }
+
+  return (
+    <div className="grid gap-3">
+      {sortRecordsByDate(activities).map((event) => (
+        <article className="rounded-lg border border-space-line bg-black/25 p-4" key={event.id || `${event.eventId}-${event.eventType}-${event.createdAt}`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-bold text-ink">{event.eventType || "activity.event"}</p>
+            <Badge tone={event.status}>{displayStatus(event.status || "recorded")}</Badge>
+          </div>
+          <p className="mt-2 break-all text-xs text-muted">documentId: {event.documentId || "-"}</p>
+          <p className="mt-2 text-sm leading-6 text-muted">{event.message || readableActivityMessage(event)}</p>
+          <pre className="mt-4 max-h-44 overflow-auto rounded-lg border border-space-line bg-black/35 p-3 text-xs leading-5 text-muted">{JSON.stringify(event, null, 2)}</pre>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function isFailedExamRecord(exam) {
   const status = String(exam?.status || exam?.validationResult || "").toLowerCase();
   return ["failed", "invalid", "error"].includes(status);
@@ -926,4 +1238,10 @@ function readableActivityMessage(event) {
 
 function readableActivityError(event) {
   return event.error || "İşlem sırasında hata oluştu.";
+}
+
+function isAdminSession(session) {
+  const role = String(session?.user?.role || "").toLowerCase();
+  const email = String(session?.user?.email || session?.email || "").toLowerCase();
+  return role === "admin" || email === "admin@examflow.com";
 }

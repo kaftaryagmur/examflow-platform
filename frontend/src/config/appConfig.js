@@ -1,4 +1,4 @@
-import { Activity, ClipboardList, FileText, LayoutDashboard } from "lucide-react";
+import { ClipboardList, FileText, LayoutDashboard, ShieldCheck, UserCog } from "lucide-react";
 
 export const defaultBaseUrl = "/api";
 export const demoPassword = "ExamFlowDemo2026";
@@ -14,7 +14,8 @@ export const appNav = [
   { to: "/app/dashboard", label: "Genel bakış", icon: LayoutDashboard },
   { to: "/app/documents", label: "Doküman arşivi", icon: FileText },
   { to: "/app/exams", label: "Sınav arşivi", icon: ClipboardList },
-  { to: "/app/activity", label: "İşlem geçmişi", icon: Activity },
+  { to: "/app/profile", label: "Profil", icon: UserCog },
+  { to: "/app/admin", label: "Admin panel", icon: ShieldCheck },
 ];
 
 export const emptyTimeline = [

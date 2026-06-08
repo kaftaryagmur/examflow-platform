@@ -88,10 +88,12 @@ export function ExamDetailPage({ exams }) {
   const { examKey } = useParams();
   const decodedExamKey = decodeURIComponent(examKey || "");
   const [selectedAnswers, setSelectedAnswers] = useState({});
+  const [activeContentTab, setActiveContentTab] = useState("questions");
   const exam = exams.find((item) => item.id === decodedExamKey || item.examId === decodedExamKey || item.documentId === decodedExamKey);
 
   useEffect(() => {
     setSelectedAnswers({});
+    setActiveContentTab("questions");
   }, [decodedExamKey]);
 
   if (!exam) {
@@ -127,13 +129,12 @@ export function ExamDetailPage({ exams }) {
           </Link>
           <p className="label">Sınav detayı</p>
           <h3 className="mt-2 break-words text-3xl font-black text-ink">{exam.title || "Oluşturulan sınav"}</h3>
-          <p className="mt-3 break-all text-sm leading-6 text-muted">{exam.documentId || exam.id}</p>
         </div>
         <Badge tone={exam.status}>{displayStatus(exam.status || "recorded")}</Badge>
       </section>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.28fr)]">
-        <aside className="grid content-start gap-5">
+      <div className="grid gap-5">
+        <aside className="hidden">
           <section className="panel p-5">
             <p className="label">Metadata</p>
             <h3 className="section-title">Kayıt bilgileri</h3>
@@ -168,6 +169,16 @@ export function ExamDetailPage({ exams }) {
               <StatusPill isReady={hasGeneratedQuestions} readyText={`${generatedQuestions.length} soru hazır`} waitingText="Contract önizlemesi" />
             </div>
 
+            <div className="mb-5 grid grid-cols-2 gap-2 rounded-lg border border-space-line bg-black/20 p-1">
+              <button className={`segmented-btn ${activeContentTab === "questions" ? "active" : ""}`} type="button" onClick={() => setActiveContentTab("questions")}>
+                Sorular
+              </button>
+              <button className={`segmented-btn ${activeContentTab === "infoCards" ? "active" : ""}`} type="button" onClick={() => setActiveContentTab("infoCards")}>
+                Bilgi kartları
+              </button>
+            </div>
+
+            {activeContentTab === "questions" ? (
             <div className="grid gap-4">
               {questionCards.map((question, index) => (
                 <QuestionCard
@@ -179,15 +190,13 @@ export function ExamDetailPage({ exams }) {
                 />
               ))}
             </div>
+            ) : (
+              <InfoCardsPanel cards={infoCards} hasGeneratedInfoCards={hasGeneratedInfoCards} />
+            )}
           </section>
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.75fr)]">
-            <InfoCardsPanel cards={infoCards} hasGeneratedInfoCards={hasGeneratedInfoCards} />
             <AnswerKeyPanel questions={questionCards} selectedAnswers={selectedAnswers} />
-          </div>
-
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.75fr)]">
-            <GenerationContractPanel exam={exam} />
             <ExamQualityPanel exam={exam} hasGeneratedQuestions={hasGeneratedQuestions} questionCount={generatedQuestions.length} />
           </div>
         </main>
@@ -223,7 +232,7 @@ function GenerationReadiness({ hasGeneratedInfoCards, hasGeneratedQuestions, inf
       <p className="label">Üretim durumu</p>
       <h3 className="section-title">İçerik hazırlığı</h3>
       <div className="mt-5 grid gap-3">
-        {items.map((item) => (
+        {items.slice(0, 2).map((item) => (
           <div className="rounded-lg border border-space-line bg-black/20 p-4" key={item.label}>
             <div className="flex items-start gap-3">
               <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border ${item.isReady ? "border-neon-green/40 bg-neon-green/10 text-neon-green" : "border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan"}`}>

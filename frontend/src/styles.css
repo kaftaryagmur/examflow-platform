@@ -68,12 +68,36 @@
     @apply flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-neon-cyan/40 bg-gradient-to-br from-cyber-purple/80 to-neon-cyan/60 text-xl font-black text-white shadow-neon-cyan;
   }
 
+  .home-shell {
+    @apply mx-auto flex min-h-screen w-full max-w-[1500px] flex-col px-4 py-4 sm:px-6 lg:px-8;
+  }
+
+  .home-nav {
+    @apply flex flex-col gap-4 rounded-lg border border-space-line bg-black/30 p-4 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between;
+  }
+
+  .home-hero {
+    @apply grid flex-1 content-center gap-6 py-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.75fr)] lg:items-center lg:py-10;
+  }
+
+  .home-flow {
+    @apply panel glass-grid grid gap-3 p-4 sm:p-5;
+  }
+
+  .home-flow-row {
+    @apply flex min-w-0 items-center gap-3 rounded-lg border border-space-line bg-black/25 p-3;
+  }
+
   .app-auth-shell {
     @apply grid min-h-screen content-center gap-4 px-4 py-3 sm:px-5 lg:grid-cols-[minmax(320px,440px)_minmax(360px,1fr)] lg:px-6;
   }
 
+  .login-shell {
+    @apply grid min-h-screen place-items-center px-4 py-8 sm:px-6;
+  }
+
   .auth-card {
-    @apply panel glass-grid self-center p-5 sm:p-6;
+    @apply panel glass-grid w-full max-w-[420px] self-center p-5 sm:p-6;
   }
 
   .auth-aside {

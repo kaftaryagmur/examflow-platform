@@ -139,7 +139,6 @@ function FileLoadingState() {
     <div className="flex min-h-[420px] flex-col items-center justify-center rounded-lg border border-dashed border-space-line bg-black/25 p-8 text-center">
       <Loader2 className="h-10 w-10 animate-spin text-neon-cyan" />
       <p className="mt-4 text-base font-bold text-ink">Güvenli dosya hazırlanıyor.</p>
-      <p className="mt-2 max-w-xl text-sm leading-6 text-muted">Viewer dosyayı JWT ile backend endpointinden alıyor.</p>
     </div>
   );
 }

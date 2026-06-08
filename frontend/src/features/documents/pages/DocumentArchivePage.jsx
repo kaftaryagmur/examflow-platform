@@ -58,8 +58,8 @@ export function DocumentArchivePage({ busy, documents, onUpdateMetadata }) {
       </section>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <ArchiveInsightCard icon={FileText} title="Toplam kayıt" value={documents.length} tone="ok" detail="documents collection" />
-        <ArchiveInsightCard icon={Activity} title="İşlenen kayıt" value={processedCount} tone={processedCount ? "ready" : "idle"} detail="event akışından dönenler" />
+        <ArchiveInsightCard icon={FileText} title="Toplam kayıt" value={documents.length} tone="ok"  />
+        <ArchiveInsightCard icon={Activity} title="İşlenen kayıt" value={processedCount} tone={processedCount ? "ready" : "idle"}  />
         <ArchiveInsightCard icon={SlidersHorizontal} title="Kaynak sayısı" value={uniqueSources} tone={uniqueSources ? "ok" : "idle"} detail="source alanına göre" />
         <ArchiveInsightCard icon={Database} title="Son doküman" value={latestDocument ? parseRecordDate(latestDocument.updatedAt || latestDocument.createdAt) : "-"} tone={latestDocument?.status || "idle"} detail={latestDocument?.fileName || "Henüz kayıt yok"} />
       </div>

@@ -5,6 +5,7 @@ import {
   Database,
   FileText,
   FileUp,
+  Home,
   Loader2,
   RefreshCw,
   ShieldCheck,
@@ -752,10 +753,14 @@ function AuthPanel({ busy, error, onSubmit }) {
       <div className="flex items-center gap-3">
         <img className="brand-logo" src={markLogoSrc} alt="ExamFlow logo" />
         <div>
-          <p className="label">ExamFlow</p>
-          <h1 className="text-xl font-black text-ink">Hesabına giriş yap</h1>
+          <h1 className="text-xl font-black text-ink">ExamFlow</h1>
         </div>
       </div>
+
+      <Link className="btn btn-secondary mt-4 w-fit" to="/">
+        <Home className="h-4 w-4" />
+        Ana sayfaya dön
+      </Link>
 
       <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg border border-space-line bg-black/20 p-1">
         <button
@@ -939,7 +944,7 @@ function AppOverview({
         />
       </div>
 
-      <TagFolderPanel folders={tagFolders} title="Etiket klasorleri" />
+      <TagFolderPanel folders={tagFolders} title="Etiket klasörleri" />
 
       <div className="grid gap-5 xl:grid-cols-2">
         <WorkspaceRecords
@@ -1900,7 +1905,7 @@ function buildCombinedTagFolders(documents, exams) {
 
   return Array.from(folders.values())
     .map((folder) => ({
-      detail: `${folder.documentCount} dokuman · ${folder.examCount} sinav`,
+      detail: `${folder.documentCount} doküman · ${folder.examCount} sınav`,
       documentTo: `/app/documents?tag=${encodeURIComponent(folder.tag)}`,
       examTo: `/app/exams?tag=${encodeURIComponent(folder.tag)}`,
       tag: folder.tag,

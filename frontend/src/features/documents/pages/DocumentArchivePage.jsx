@@ -7,24 +7,30 @@ import { DocumentArchiveCard } from "../components/DocumentArchiveCard";
 import { DocumentFilters } from "../components/DocumentFilters";
 import { EmptyArchiveState } from "../components/EmptyArchiveState";
 
-export function DocumentArchivePage({ busy, documents }) {
+export function DocumentArchivePage({ busy, documents, onUpdateMetadata }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
+  const [favoriteFilter, setFavoriteFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("all");
 
   const recentDocuments = useMemo(() => sortRecordsByDate(documents), [documents]);
   const statusOptions = useMemo(() => Array.from(new Set(documents.map((document) => document.status).filter(Boolean))).sort(), [documents]);
   const sourceOptions = useMemo(() => Array.from(new Set(documents.map((document) => document.source).filter(Boolean))).sort(), [documents]);
+  const tagOptions = useMemo(() => Array.from(new Set(documents.flatMap((document) => (Array.isArray(document.tags) ? document.tags : [])).filter(Boolean))).sort(), [documents]);
   const filteredDocuments = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return recentDocuments.filter((document) => {
-      const searchable = [document.fileName, document.title, document.documentId, document.source, document.status].filter(Boolean).join(" ").toLowerCase();
+      const tags = Array.isArray(document.tags) ? document.tags : [];
+      const searchable = [document.fileName, document.title, document.documentId, document.source, document.status, ...tags].filter(Boolean).join(" ").toLowerCase();
       const matchesQuery = !normalizedQuery || searchable.includes(normalizedQuery);
       const matchesStatus = statusFilter === "all" || document.status === statusFilter;
       const matchesSource = sourceFilter === "all" || document.source === sourceFilter;
-      return matchesQuery && matchesStatus && matchesSource;
+      const matchesFavorite = favoriteFilter === "all" || Boolean(document.favorite);
+      const matchesTag = tagFilter === "all" || tags.includes(tagFilter);
+      return matchesQuery && matchesStatus && matchesSource && matchesFavorite && matchesTag;
     });
-  }, [query, recentDocuments, sourceFilter, statusFilter]);
+  }, [favoriteFilter, query, recentDocuments, sourceFilter, statusFilter, tagFilter]);
 
   const latestDocument = recentDocuments[0];
   const processedCount = documents.filter((document) => ["processed", "validated", "ready", "accepted", "uploaded"].includes(String(document.status || "").toLowerCase())).length;
@@ -65,6 +71,11 @@ export function DocumentArchivePage({ busy, documents }) {
           sourceFilter={sourceFilter}
           setSourceFilter={setSourceFilter}
           sourceOptions={sourceOptions}
+          favoriteFilter={favoriteFilter}
+          setFavoriteFilter={setFavoriteFilter}
+          tagFilter={tagFilter}
+          setTagFilter={setTagFilter}
+          tagOptions={tagOptions}
           statusFilter={statusFilter}
           setStatusFilter={setStatusFilter}
           statusOptions={statusOptions}
@@ -79,7 +90,7 @@ export function DocumentArchivePage({ busy, documents }) {
 
         <div className="mt-5 grid gap-3">
           {filteredDocuments.length ? (
-            filteredDocuments.map((document) => <DocumentArchiveCard key={document.id || `${document.documentId}-${document.createdAt}`} document={document} />)
+            filteredDocuments.map((document) => <DocumentArchiveCard busy={busy} key={document.id || `${document.documentId}-${document.createdAt}`} document={document} onUpdateMetadata={onUpdateMetadata} />)
           ) : (
             <EmptyArchiveState hasDocuments={documents.length > 0} />
           )}

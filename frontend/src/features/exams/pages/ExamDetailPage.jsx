@@ -16,6 +16,7 @@ import {
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { RecordMetadataControls } from "../../../components/recordMetadata";
 import { Badge } from "../../../components/status";
 import { displayStatus, parseRecordDate } from "../../../utils/format";
 import { ExamMeta } from "../components/ExamMeta";
@@ -84,7 +85,7 @@ const PREVIEW_INFO_CARDS = [
   },
 ];
 
-export function ExamDetailPage({ exams }) {
+export function ExamDetailPage({ busy, exams, onUpdateMetadata }) {
   const { examKey } = useParams();
   const decodedExamKey = decodeURIComponent(examKey || "");
   const [selectedAnswers, setSelectedAnswers] = useState({});
@@ -113,6 +114,7 @@ export function ExamDetailPage({ exams }) {
   }
 
   const generatedQuestions = getGeneratedQuestions(exam);
+  const recordKey = exam.id || exam.examId || exam.documentId || "";
   const generatedInfoCards = getGeneratedInfoCards(exam);
   const questionCards = generatedQuestions.length > 0 ? generatedQuestions : PREVIEW_QUESTIONS;
   const infoCards = generatedInfoCards.length > 0 ? generatedInfoCards : PREVIEW_INFO_CARDS;
@@ -130,7 +132,15 @@ export function ExamDetailPage({ exams }) {
           <p className="label">Sınav detayı</p>
           <h3 className="mt-2 break-words text-3xl font-black text-ink">{exam.title || "Oluşturulan sınav"}</h3>
         </div>
-        <Badge tone={exam.status}>{displayStatus(exam.status || "recorded")}</Badge>
+        <div className="grid gap-3">
+          <Badge tone={exam.status}>{displayStatus(exam.status || "recorded")}</Badge>
+          <RecordMetadataControls
+            busy={busy === `metadata-exam-${recordKey}`}
+            onChange={(metadata) => onUpdateMetadata?.(recordKey, metadata)}
+            record={exam}
+            type="exam"
+          />
+        </div>
       </section>
 
       <div className="grid gap-5">

@@ -42,6 +42,8 @@ type Document struct {
 	FileURL         string          `bson:"fileUrl,omitempty" json:"fileUrl,omitempty"`
 	Source          string          `bson:"source" json:"source"`
 	Status          string          `bson:"status" json:"status"`
+	Favorite        bool            `bson:"favorite,omitempty" json:"favorite"`
+	Tags            []string        `bson:"tags,omitempty" json:"tags,omitempty"`
 	GenerationPrefs GenerationPrefs `bson:"generationPrefs,omitempty" json:"generationPrefs,omitempty"`
 	CreatedAt       string          `bson:"createdAt" json:"createdAt"`
 	UpdatedAt       string          `bson:"updatedAt" json:"updatedAt"`

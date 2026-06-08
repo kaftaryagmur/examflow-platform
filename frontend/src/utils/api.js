@@ -10,6 +10,10 @@ export async function parseResponse(response) {
 }
 
 export function responseMessage(method, path, status, body, apiBaseUrl) {
+  if (status === 413) {
+    return `${method} ${path} isteği için dosya boyutu çok büyük. Daha küçük bir dosya yüklemeyi deneyin veya sistem yöneticisinden yükleme limitini artırmasını isteyin.`;
+  }
+
   if (body === null || body === "") {
     if (apiBaseUrl.trim() === "/api") {
       return `${method} ${path} ${status} döndü. API proxy yanıt vermedi. api-service için port-forward açık mı? Komut: kubectl port-forward service/api-service 8080:80 -n examflow`;

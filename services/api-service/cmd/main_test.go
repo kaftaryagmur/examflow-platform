@@ -215,6 +215,19 @@ func (f *fakeUserStore) ListUsers(_ context.Context) ([]User, error) {
 	return users, nil
 }
 
+func (f *fakeUserStore) DeleteUser(_ context.Context, userID string) error {
+	if f.err != nil {
+		return f.err
+	}
+	for email, user := range f.users {
+		if user.ID.Hex() == userID {
+			delete(f.users, email)
+			return nil
+		}
+	}
+	return errUserNotFound
+}
+
 func (f *fakeDocumentStore) CreateDocument(_ context.Context, document Document) (Document, error) {
 	if f.err != nil {
 		return Document{}, f.err
@@ -240,6 +253,13 @@ func (f *fakeDocumentStore) FindDocument(_ context.Context, userID string, docum
 }
 
 func (f *fakeDocumentStore) ListDocuments(context.Context, string) ([]Document, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.documents, nil
+}
+
+func (f *fakeDocumentStore) ListAllDocuments(context.Context) ([]Document, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -278,6 +298,13 @@ func (f *fakeExamStore) ListExams(context.Context, string) ([]Exam, error) {
 	return f.exams, nil
 }
 
+func (f *fakeExamStore) ListAllExams(context.Context) ([]Exam, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.exams, nil
+}
+
 func (f *fakeActivityStore) CreateActivity(_ context.Context, event ActivityEvent) error {
 	if f.err != nil {
 		return f.err
@@ -300,6 +327,10 @@ func (f *fakeActivityStore) ListActivities(_ context.Context, _ string, document
 		}
 	}
 	return filtered, nil
+}
+
+func (f *fakeActivityStore) ListAllActivities(ctx context.Context, documentID string) ([]ActivityEvent, error) {
+	return f.ListActivities(ctx, "", documentID)
 }
 
 func useActivityStore(t *testing.T, store activityStore) {

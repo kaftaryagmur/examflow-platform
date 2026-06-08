@@ -102,6 +102,7 @@ type userStore interface {
 	FindUserByEmail(context.Context, string) (User, error)
 	ListUsers(context.Context) ([]User, error)
 	UpdateUser(context.Context, User) (User, error)
+	DeleteUser(context.Context, string) error
 }
 
 type mongoUserStore struct {
@@ -112,6 +113,7 @@ type documentStore interface {
 	CreateDocument(context.Context, Document) (Document, error)
 	FindDocument(context.Context, string, string) (Document, error)
 	ListDocuments(context.Context, string) ([]Document, error)
+	ListAllDocuments(context.Context) ([]Document, error)
 }
 
 type mongoDocumentStore struct {
@@ -129,6 +131,7 @@ type mongoDocumentFileStore struct {
 
 type examStore interface {
 	ListExams(context.Context, string) ([]Exam, error)
+	ListAllExams(context.Context) ([]Exam, error)
 }
 
 type mongoExamStore struct {
@@ -710,6 +713,127 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			}
 		})))
+
+		mux.Handle("/admin/users/", auth.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := authPrincipalFromContext(r.Context())
+			if !ok {
+				http.Error(w, "auth context unavailable", http.StatusUnauthorized)
+				return
+			}
+			if !isAdminClaims(claims) {
+				http.Error(w, "admin access required", http.StatusForbidden)
+				return
+			}
+			if users == nil {
+				http.Error(w, "auth store unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			if r.Method != http.MethodDelete {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			userID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/admin/users/"), "/")
+			if userID == "" {
+				http.NotFound(w, r)
+				return
+			}
+			if userID == claims.UserID {
+				http.Error(w, "current admin user cannot be deleted", http.StatusBadRequest)
+				return
+			}
+			if err := users.DeleteUser(r.Context(), userID); err != nil {
+				if errors.Is(err, errUserNotFound) {
+					http.NotFound(w, r)
+					return
+				}
+				logKV("error", "api-service", "admin user delete failed", "endpoint", "/admin/users/{userId}", "admin_user_id", claims.UserID, "target_user_id", userID, "error", err.Error())
+				http.Error(w, "user delete failed", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"status": "deleted", "userId": userID})
+		})))
+
+		mux.Handle("/admin/documents", auth.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := authPrincipalFromContext(r.Context())
+			if !ok {
+				http.Error(w, "auth context unavailable", http.StatusUnauthorized)
+				return
+			}
+			if !isAdminClaims(claims) {
+				http.Error(w, "admin access required", http.StatusForbidden)
+				return
+			}
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if documents == nil {
+				http.Error(w, "document store unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			records, err := documents.ListAllDocuments(r.Context())
+			if err != nil {
+				logKV("error", "api-service", "admin document list failed", "endpoint", "/admin/documents", "user_id", claims.UserID, "error", err.Error())
+				http.Error(w, "document list failed", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"documents": records})
+		})))
+
+		mux.Handle("/admin/exams", auth.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := authPrincipalFromContext(r.Context())
+			if !ok {
+				http.Error(w, "auth context unavailable", http.StatusUnauthorized)
+				return
+			}
+			if !isAdminClaims(claims) {
+				http.Error(w, "admin access required", http.StatusForbidden)
+				return
+			}
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if exams == nil {
+				http.Error(w, "exam store unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			records, err := exams.ListAllExams(r.Context())
+			if err != nil {
+				logKV("error", "api-service", "admin exam list failed", "endpoint", "/admin/exams", "user_id", claims.UserID, "error", err.Error())
+				http.Error(w, "exam list failed", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"exams": records})
+		})))
+
+		mux.Handle("/admin/activity", auth.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := authPrincipalFromContext(r.Context())
+			if !ok {
+				http.Error(w, "auth context unavailable", http.StatusUnauthorized)
+				return
+			}
+			if !isAdminClaims(claims) {
+				http.Error(w, "admin access required", http.StatusForbidden)
+				return
+			}
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if activities == nil {
+				http.Error(w, "activity store unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			records, err := activities.ListAllActivities(r.Context(), r.URL.Query().Get("documentId"))
+			if err != nil {
+				logKV("error", "api-service", "admin activity list failed", "endpoint", "/admin/activity", "user_id", claims.UserID, "error", err.Error())
+				http.Error(w, "activity list failed", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"activities": records})
+		})))
 	} else {
 		mux.HandleFunc("/auth/me", func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
@@ -1049,6 +1173,24 @@ func (store mongoUserStore) UpdateUser(ctx context.Context, user User) (User, er
 	return user, nil
 }
 
+func (store mongoUserStore) DeleteUser(ctx context.Context, userID string) error {
+	deleteCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	userObjectID, err := bson.ObjectIDFromHex(strings.TrimSpace(userID))
+	if err != nil {
+		return errUserNotFound
+	}
+	result, err := store.collection.DeleteOne(deleteCtx, bson.M{"_id": userObjectID})
+	if err != nil {
+		return err
+	}
+	if result.DeletedCount == 0 {
+		return errUserNotFound
+	}
+	return nil
+}
+
 func (store mongoDocumentStore) CreateDocument(ctx context.Context, document Document) (Document, error) {
 	saveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -1115,6 +1257,27 @@ func (store mongoDocumentStore) ListDocuments(ctx context.Context, userID string
 	return documents, nil
 }
 
+func (store mongoDocumentStore) ListAllDocuments(ctx context.Context) ([]Document, error) {
+	findCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cursor, err := store.collection.Find(
+		findCtx,
+		bson.M{},
+		options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}).SetLimit(300),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(findCtx)
+
+	var documents []Document
+	if err := cursor.All(findCtx, &documents); err != nil {
+		return nil, err
+	}
+	return documents, nil
+}
+
 func (store mongoDocumentFileStore) SaveDocumentFile(ctx context.Context, req PublishRequest, userID string) (bson.ObjectID, error) {
 	saveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -1152,6 +1315,27 @@ func (store mongoExamStore) ListExams(ctx context.Context, userID string) ([]Exa
 		findCtx,
 		bson.M{"userId": userObjectID},
 		options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(findCtx)
+
+	var exams []Exam
+	if err := cursor.All(findCtx, &exams); err != nil {
+		return nil, err
+	}
+	return exams, nil
+}
+
+func (store mongoExamStore) ListAllExams(ctx context.Context) ([]Exam, error) {
+	findCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cursor, err := store.collection.Find(
+		findCtx,
+		bson.M{},
+		options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}).SetLimit(300),
 	)
 	if err != nil {
 		return nil, err

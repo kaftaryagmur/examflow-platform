@@ -98,7 +98,10 @@ type mongoDatabaseClient struct {
 
 type userStore interface {
 	CreateUser(context.Context, User) (User, error)
+	FindUserByID(context.Context, string) (User, error)
 	FindUserByEmail(context.Context, string) (User, error)
+	ListUsers(context.Context) ([]User, error)
+	UpdateUser(context.Context, User) (User, error)
 }
 
 type mongoUserStore struct {
@@ -191,6 +194,9 @@ func main() {
 			activities = mongoActivityStore{collection: mongoDB.database.Collection(activityEventsCollection)}
 			if err := ensureUserIndexes(ctx, users); err != nil {
 				logKV("warn", "api-service", "mongodb user index setup failed", "database", db.Name(), "error", err.Error())
+			}
+			if err := ensureDefaultAdminUser(ctx, users); err != nil {
+				logKV("warn", "api-service", "default admin user setup failed", "database", db.Name(), "error", err.Error())
 			}
 			if err := ensureActivityIndexes(ctx, activities); err != nil {
 				logKV("warn", "api-service", "mongodb activity index setup failed", "database", db.Name(), "error", err.Error())
@@ -611,7 +617,7 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 
 	if authConfigured {
 		mux.Handle("/auth/me", auth.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet {
+			if r.Method != http.MethodGet && r.Method != http.MethodPatch {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
@@ -622,10 +628,87 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 				return
 			}
 
+			if r.Method == http.MethodGet {
+				writeJSON(w, http.StatusOK, authResponse{
+					Status: "authenticated",
+					User:   userResponseFromClaims(claims),
+				})
+				return
+			}
+
+			if users == nil {
+				http.Error(w, "auth store unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			req, err := decodeUpdateProfileRequest(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			user, token, err := updateUserProfile(r.Context(), users, auth, claims.UserID, req)
+			if errors.Is(err, errInvalidLogin) {
+				http.Error(w, "invalid current password", http.StatusUnauthorized)
+				return
+			}
+			if err != nil {
+				logKV("error", "api-service", "profile update failed", "endpoint", "/auth/me", "user_id", claims.UserID, "error", err.Error())
+				http.Error(w, "profile update failed", http.StatusInternalServerError)
+				return
+			}
 			writeJSON(w, http.StatusOK, authResponse{
 				Status: "authenticated",
-				User:   userResponseFromClaims(claims),
+				Token:  token,
+				User:   userResponseFromUser(user),
 			})
+		})))
+
+		mux.Handle("/admin/users", auth.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := authPrincipalFromContext(r.Context())
+			if !ok {
+				http.Error(w, "auth context unavailable", http.StatusUnauthorized)
+				return
+			}
+			if !isAdminClaims(claims) {
+				http.Error(w, "admin access required", http.StatusForbidden)
+				return
+			}
+			if users == nil {
+				http.Error(w, "auth store unavailable", http.StatusServiceUnavailable)
+				return
+			}
+
+			switch r.Method {
+			case http.MethodGet:
+				records, err := users.ListUsers(r.Context())
+				if err != nil {
+					logKV("error", "api-service", "admin user list failed", "endpoint", "/admin/users", "user_id", claims.UserID, "error", err.Error())
+					http.Error(w, "user list failed", http.StatusInternalServerError)
+					return
+				}
+				responses := make([]userResponse, 0, len(records))
+				for _, user := range records {
+					responses = append(responses, userResponseFromUser(user))
+				}
+				writeJSON(w, http.StatusOK, map[string]any{"users": responses})
+			case http.MethodPost:
+				req, err := decodeRegisterRequest(r)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				user, err := registerUser(r.Context(), users, req)
+				if err != nil {
+					status := http.StatusInternalServerError
+					if errors.Is(err, errUserAlreadyExists) {
+						status = http.StatusConflict
+					}
+					http.Error(w, err.Error(), status)
+					return
+				}
+				writeJSON(w, http.StatusCreated, map[string]any{"user": userResponseFromUser(user)})
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
 		})))
 	} else {
 		mux.HandleFunc("/auth/me", func(w http.ResponseWriter, r *http.Request) {
@@ -903,6 +986,63 @@ func (store mongoUserStore) FindUserByEmail(ctx context.Context, email string) (
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return User{}, errUserNotFound
 	}
+	if err != nil {
+		return User{}, err
+	}
+	return user, nil
+}
+
+func (store mongoUserStore) FindUserByID(ctx context.Context, userID string) (User, error) {
+	findCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	userObjectID, err := bson.ObjectIDFromHex(strings.TrimSpace(userID))
+	if err != nil {
+		return User{}, errUserNotFound
+	}
+
+	var user User
+	err = store.collection.FindOne(findCtx, bson.M{"_id": userObjectID}).Decode(&user)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return User{}, errUserNotFound
+	}
+	if err != nil {
+		return User{}, err
+	}
+	return user, nil
+}
+
+func (store mongoUserStore) ListUsers(ctx context.Context) ([]User, error) {
+	findCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cursor, err := store.collection.Find(findCtx, bson.M{}, options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(findCtx)
+
+	var users []User
+	if err := cursor.All(findCtx, &users); err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+func (store mongoUserStore) UpdateUser(ctx context.Context, user User) (User, error) {
+	saveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if user.ID.IsZero() {
+		return User{}, errUserNotFound
+	}
+	_, err := store.collection.UpdateOne(saveCtx, bson.M{"_id": user.ID}, bson.M{"$set": bson.M{
+		"displayName":  user.DisplayName,
+		"passwordHash": user.PasswordHash,
+		"role":         normalizeUserRole(user.Role),
+		"status":       user.Status,
+		"updatedAt":    user.UpdatedAt,
+	}})
 	if err != nil {
 		return User{}, err
 	}

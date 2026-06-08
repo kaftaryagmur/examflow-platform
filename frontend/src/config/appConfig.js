@@ -11,7 +11,7 @@ export const demoViews = [
 ];
 
 export const appNav = [
-  { to: "/app/dashboard", label: "Genel bakış", icon: LayoutDashboard },
+  { to: "/app/dashboard", label: "İçerik Üretimi", icon: LayoutDashboard },
   { to: "/app/documents", label: "Doküman arşivi", icon: FileText },
   { to: "/app/exams", label: "Sınav arşivi", icon: ClipboardList },
   { to: "/app/profile", label: "Profil", icon: UserCog },

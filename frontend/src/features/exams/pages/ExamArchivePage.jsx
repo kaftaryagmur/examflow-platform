@@ -1,23 +1,31 @@
 import { Activity, ClipboardList, Database, Loader2, ShieldCheck } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { Badge } from "../../../components/status";
+import { TagFolderPanel, buildTagFolders } from "../../../components/tagFolders";
 import { displayStatus, parseRecordDate, sortRecordsByDate, toneClass } from "../../../utils/format";
 import { EmptyExamState } from "../components/EmptyExamState";
 import { ExamArchiveCard } from "../components/ExamArchiveCard";
 import { ExamFilters } from "../components/ExamFilters";
 
 export function ExamArchivePage({ busy, exams, onUpdateMetadata }) {
+  const [searchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [validationFilter, setValidationFilter] = useState("all");
   const [favoriteFilter, setFavoriteFilter] = useState("all");
-  const [tagFilter, setTagFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState(() => searchParams.get("tag") || "all");
 
   const recentExams = useMemo(() => sortRecordsByDate(exams), [exams]);
   const statusOptions = useMemo(() => Array.from(new Set(exams.map((exam) => exam.status).filter(Boolean))).sort(), [exams]);
   const validationOptions = useMemo(() => Array.from(new Set(exams.map((exam) => exam.validationResult).filter(Boolean))).sort(), [exams]);
   const tagOptions = useMemo(() => Array.from(new Set(exams.flatMap((exam) => (Array.isArray(exam.tags) ? exam.tags : [])).filter(Boolean))).sort(), [exams]);
+  const tagFolders = useMemo(() => buildTagFolders(exams, (count) => `${count} sinav`), [exams]);
+
+  useEffect(() => {
+    setTagFilter(searchParams.get("tag") || "all");
+  }, [searchParams]);
   const filteredExams = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return recentExams.filter((exam) => {
@@ -56,6 +64,8 @@ export function ExamArchivePage({ busy, exams, onUpdateMetadata }) {
         <ExamInsightCard icon={Activity} title="Hatalı kayıt" value={failedCount} tone={failedCount ? "failed" : "ok"} detail="failed / invalid" />
         <ExamInsightCard icon={Database} title="Bağlı doküman" value={linkedDocuments} tone={linkedDocuments ? "ok" : "idle"} detail={latestExam ? parseRecordDate(latestExam.updatedAt || latestExam.createdAt) : "Henüz kayıt yok"} />
       </div>
+
+      <TagFolderPanel folders={tagFolders} onSelect={setTagFilter} selectedTag={tagFilter} />
 
       <section className="panel p-5">
         <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">

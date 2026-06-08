@@ -54,7 +54,7 @@ export function DocumentFilters({
       <label className="block">
         <span className="label">Favori</span>
         <select className="field mt-1" value={favoriteFilter} onChange={(event) => setFavoriteFilter(event.target.value)}>
-          <option value="all">TÃ¼m kayÄ±tlar</option>
+          <option value="all">Tum kayitlar</option>
           <option value="favorites">Favoriler</option>
         </select>
       </label>
@@ -62,7 +62,7 @@ export function DocumentFilters({
       <label className="block">
         <span className="label">Etiket</span>
         <select className="field mt-1" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
-          <option value="all">TÃ¼m etiketler</option>
+          <option value="all">Tum etiketler</option>
           {tagOptions.map((tag) => (
             <option key={tag} value={tag}>
               {tag}

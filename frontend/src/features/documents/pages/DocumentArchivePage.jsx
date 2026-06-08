@@ -1,23 +1,31 @@
 import { Activity, Database, FileText, Loader2, SlidersHorizontal } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { Badge } from "../../../components/status";
+import { TagFolderPanel, buildTagFolders } from "../../../components/tagFolders";
 import { displayStatus, parseRecordDate, sortRecordsByDate, toneClass } from "../../../utils/format";
 import { DocumentArchiveCard } from "../components/DocumentArchiveCard";
 import { DocumentFilters } from "../components/DocumentFilters";
 import { EmptyArchiveState } from "../components/EmptyArchiveState";
 
 export function DocumentArchivePage({ busy, documents, onUpdateMetadata }) {
+  const [searchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [favoriteFilter, setFavoriteFilter] = useState("all");
-  const [tagFilter, setTagFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState(() => searchParams.get("tag") || "all");
 
   const recentDocuments = useMemo(() => sortRecordsByDate(documents), [documents]);
   const statusOptions = useMemo(() => Array.from(new Set(documents.map((document) => document.status).filter(Boolean))).sort(), [documents]);
   const sourceOptions = useMemo(() => Array.from(new Set(documents.map((document) => document.source).filter(Boolean))).sort(), [documents]);
   const tagOptions = useMemo(() => Array.from(new Set(documents.flatMap((document) => (Array.isArray(document.tags) ? document.tags : [])).filter(Boolean))).sort(), [documents]);
+  const tagFolders = useMemo(() => buildTagFolders(documents, (count) => `${count} dokuman`), [documents]);
+
+  useEffect(() => {
+    setTagFilter(searchParams.get("tag") || "all");
+  }, [searchParams]);
   const filteredDocuments = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return recentDocuments.filter((document) => {
@@ -55,6 +63,8 @@ export function DocumentArchivePage({ busy, documents, onUpdateMetadata }) {
         <ArchiveInsightCard icon={SlidersHorizontal} title="Kaynak sayısı" value={uniqueSources} tone={uniqueSources ? "ok" : "idle"} detail="source alanına göre" />
         <ArchiveInsightCard icon={Database} title="Son doküman" value={latestDocument ? parseRecordDate(latestDocument.updatedAt || latestDocument.createdAt) : "-"} tone={latestDocument?.status || "idle"} detail={latestDocument?.fileName || "Henüz kayıt yok"} />
       </div>
+
+      <TagFolderPanel folders={tagFolders} onSelect={setTagFilter} selectedTag={tagFilter} />
 
       <section className="panel p-5">
         <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">

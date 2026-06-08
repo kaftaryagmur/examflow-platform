@@ -27,6 +27,12 @@ prometheus:
 alertmanager:
   enabled: true
 
+coreDns:
+  enabled: false
+
+kubeDns:
+  enabled: false
+
 kubeEtcd:
   enabled: false
 
@@ -37,4 +43,10 @@ kubeScheduler:
   enabled: false
 
 kubeProxy:
+  enabled: false
+
+nodeExporter:
+  enabled: false
+
+prometheus-node-exporter:
   enabled: false

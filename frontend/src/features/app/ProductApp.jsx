@@ -987,7 +987,7 @@ function AppOverview({
         />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(320px,0.95fr)_minmax(420px,1.05fr)]">
+      <div className="grid gap-5 2xl:grid-cols-[minmax(320px,0.95fr)_minmax(420px,1.05fr)]">
         <DashboardPublishPanel
           busy={busy}
           difficulty={difficulty}
@@ -1075,7 +1075,7 @@ function DashboardPublishPanel({
           />
         </label>
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-3">
           <label className="block">
             <span className="label">Soru sayısı</span>
             <input

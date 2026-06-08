@@ -37,6 +37,7 @@ type ActivityEvent struct {
 type activityStore interface {
 	CreateActivity(context.Context, ActivityEvent) error
 	ListActivities(context.Context, string, string) ([]ActivityEvent, error)
+	ListAllActivities(context.Context, string) ([]ActivityEvent, error)
 }
 
 type mongoActivityStore struct {
@@ -125,6 +126,32 @@ func (store mongoActivityStore) ListActivities(ctx context.Context, userID, docu
 	return events, nil
 }
 
+func (store mongoActivityStore) ListAllActivities(ctx context.Context, documentID string) ([]ActivityEvent, error) {
+	filter := bson.M{}
+	if trimmedDocumentID := strings.TrimSpace(documentID); trimmedDocumentID != "" {
+		filter["documentId"] = trimmedDocumentID
+	}
+
+	findCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cursor, err := store.collection.Find(
+		findCtx,
+		filter,
+		options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}).SetLimit(300),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(findCtx)
+
+	var events []ActivityEvent
+	if err := cursor.All(findCtx, &events); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
 func ensureActivityIndexes(ctx context.Context, store activityStore) error {
 	mongoStore, ok := store.(mongoActivityStore)
 	if !ok {
@@ -142,6 +169,10 @@ func ensureActivityIndexes(ctx context.Context, store activityStore) error {
 		{
 			Keys:    bson.D{{Key: "userId", Value: 1}, {Key: "documentId", Value: 1}, {Key: "createdAt", Value: -1}},
 			Options: options.Index().SetName("activity_user_document_createdAt"),
+		},
+		{
+			Keys:    bson.D{{Key: "createdAt", Value: -1}},
+			Options: options.Index().SetName("activity_createdAt"),
 		},
 	})
 	return err

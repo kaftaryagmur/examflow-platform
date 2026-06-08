@@ -8,6 +8,7 @@ import {
   Loader2,
   RefreshCw,
   ShieldCheck,
+  Trash2,
   User,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -97,6 +98,9 @@ export function ProductApp() {
   const [exams, setExams] = useState([]);
   const [activities, setActivities] = useState([]);
   const [adminUsers, setAdminUsers] = useState([]);
+  const [adminDocuments, setAdminDocuments] = useState([]);
+  const [adminExams, setAdminExams] = useState([]);
+  const [adminActivities, setAdminActivities] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [source, setSource] = useState("app-dashboard");
   const [questionCount, setQuestionCount] = useState(5);
@@ -315,25 +319,39 @@ export function ProductApp() {
     setDocuments([]);
     setExams([]);
     setActivities([]);
+    setAdminUsers([]);
+    setAdminDocuments([]);
+    setAdminExams([]);
+    setAdminActivities([]);
     setLastProcess(null);
     setProcessNotice("");
     navigate("/login", { replace: true });
   }
 
-  async function loadAdminUsers(token = session?.token) {
+  async function loadAdminWorkspace(token = session?.token) {
     if (!token || !isAdmin) return [];
-    setBusy("admin-users");
+    setBusy("admin-data");
     setError("");
     try {
-      const body = await appRequest("/admin/users", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const nextUsers = body.users || [];
+      const headers = { Authorization: `Bearer ${token}` };
+      const [userBody, documentBody, examBody, activityBody] = await Promise.all([
+        appRequest("/admin/users", { headers }),
+        appRequest("/admin/documents", { headers }),
+        appRequest("/admin/exams", { headers }),
+        appRequest("/admin/activity", { headers }),
+      ]);
+      const nextUsers = userBody.users || [];
+      const nextDocuments = documentBody.documents || [];
+      const nextExams = examBody.exams || [];
+      const nextActivities = activityBody.activities || [];
       setAdminUsers(nextUsers);
-      return nextUsers;
+      setAdminDocuments(nextDocuments);
+      setAdminExams(nextExams);
+      setAdminActivities(nextActivities);
+      return { users: nextUsers, documents: nextDocuments, exams: nextExams, activities: nextActivities };
     } catch (err) {
       setError(err.message);
-      return [];
+      return { users: [], documents: [], exams: [], activities: [] };
     } finally {
       setBusy("");
     }
@@ -352,7 +370,26 @@ export function ProductApp() {
         },
         body: JSON.stringify(values),
       });
-      await loadAdminUsers(session.token);
+      await loadAdminWorkspace(session.token);
+      return true;
+    } catch (err) {
+      setError(err.message);
+      return false;
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function deleteAdminUser(userId) {
+    if (!session?.token || !isAdmin || !userId) return false;
+    setBusy(`admin-delete-user-${userId}`);
+    setError("");
+    try {
+      await appRequest(`/admin/users/${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.token}` },
+      });
+      await loadAdminWorkspace(session.token);
       return true;
     } catch (err) {
       setError(err.message);
@@ -394,7 +431,7 @@ export function ProductApp() {
     if (session?.token) {
       loadArchive(session.token);
       if (isAdminSession(session)) {
-        loadAdminUsers(session.token);
+        loadAdminWorkspace(session.token);
       }
     }
   }, [session?.token]);
@@ -501,13 +538,18 @@ export function ProductApp() {
               isAdmin ? (
                 <AdminWorkspace
                   activities={activities}
+                  adminActivities={adminActivities}
+                  adminDocuments={adminDocuments}
+                  adminExams={adminExams}
                   busy={busy}
                   documents={documents}
                   exams={exams}
                   health={health}
                   onCreateUser={createAdminUser}
-                  onRefreshUsers={() => loadAdminUsers()}
+                  onDeleteUser={deleteAdminUser}
+                  onRefresh={() => loadAdminWorkspace()}
                   ready={ready}
+                  session={session}
                   users={adminUsers}
                 />
               ) : (
@@ -683,7 +725,7 @@ function DashboardPublishPanel({
         <div>
           <p className="label">Yeni işlem</p>
           <h3 className="section-title">Doküman gönderimi</h3>
-          <p className="mt-2 text-sm leading-6 text-muted">Dosya adını ve kaynağını API’ye iletir; backend bu isteği Pub/Sub tabanlı sınav üretim akışına alır.</p>
+          <p className="mt-2 text-sm leading-6 text-muted">Ders notunu yükle; sistem bu dokümandan sınav soruları ve çalışma kartları oluştursun.</p>
         </div>
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan">
           <FileUp className="h-5 w-5" />
@@ -747,7 +789,7 @@ function DashboardPublishPanel({
 
         <div className="rounded-lg border border-space-line bg-black/25 p-4">
           <p className="text-sm font-bold text-ink">{selectedFile?.name || "PDF veya DOCX dosyasi sec"}</p>
-          <p className="mt-1 text-xs leading-5 text-muted">Backend dosyayi multipart olarak alir; uzanti, boyut ve icerik tipi metadata olarak kaydedilir. Akis sonucu dokuman ve sinav arsivinden takip edilir.</p>
+          <p className="mt-1 text-xs leading-5 text-muted">Yükleme tamamlandığında sonucu bu ekranda ve arşivlerde görebilirsin.</p>
         </div>
 
         <button className="btn btn-primary w-full" type="submit" disabled={isPublishing || !selectedFile}>
@@ -770,7 +812,7 @@ function DashboardResultPanel({ lastProcess, latestDocument, latestExam, notice 
         <div>
           <p className="label">Sonuç ekranı</p>
           <h3 className="section-title">Son işlem sonucu</h3>
-          <p className="mt-2 text-sm leading-6 text-muted">Gönderilen dokümanın MongoDB’deki karşılığını ve üretildiyse sınav kaydını burada görürsün.</p>
+          <p className="mt-2 text-sm leading-6 text-muted">Yüklediğin dokümanın işlenme durumunu ve oluşan sınavı burada görebilirsin.</p>
         </div>
         <Badge tone={status}>{displayStatus(status)}</Badge>
       </div>
@@ -780,7 +822,7 @@ function DashboardResultPanel({ lastProcess, latestDocument, latestExam, notice 
 
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <ResultRecordCard fallback="Henüz doküman sonucu yok." icon={FileText} label="Doküman kaydı" record={documentRecord} title={documentRecord?.fileName || lastProcess?.fileName} />
-        <ResultRecordCard fallback="Henüz sınav sonucu yok." icon={ClipboardList} label="Sınav kaydı" record={examRecord} title={examRecord?.title || examRecord?.documentId} />
+        <ResultRecordCard fallback="Henüz sınav sonucu yok." icon={ClipboardList} label="Sınav kaydı" record={examRecord} title={examRecord?.title || "Oluşturulan sınav"} />
       </div>
 
     </section>
@@ -801,9 +843,6 @@ function ResultRecordCard({ fallback, icon: Icon, label, record, title }) {
       </div>
       {record ? (
         <div className="grid gap-2 text-xs text-muted">
-          <p>
-            <span className="font-bold text-ink">documentId:</span> {record.documentId || record.id || "-"}
-          </p>
           <p>
             <span className="font-bold text-ink">Durum:</span> {displayStatus(record.status || "recorded")}
           </p>
@@ -1035,13 +1074,13 @@ function ProfileWorkspace({ busy, onSubmit, session }) {
   );
 }
 
-function AdminWorkspace({ activities, busy, documents, exams, health, onCreateUser, onRefreshUsers, ready, users }) {
+function AdminWorkspace({ adminActivities, adminDocuments, adminExams, busy, health, onCreateUser, onDeleteUser, onRefresh, ready, session, users }) {
   const [activeTab, setActiveTab] = useState("documents");
   const tabs = [
     { id: "users", label: "Kullanıcılar", count: users.length },
-    { id: "documents", label: "Dokümanlar", count: documents.length },
-    { id: "exams", label: "Sınavlar", count: exams.length },
-    { id: "activity", label: "İşlem geçmişi", count: activities.length },
+    { id: "documents", label: "Dokümanlar", count: adminDocuments.length },
+    { id: "exams", label: "Sınavlar", count: adminExams.length },
+    { id: "activity", label: "İşlem geçmişi", count: adminActivities.length },
   ];
 
   return (
@@ -1068,16 +1107,25 @@ function AdminWorkspace({ activities, busy, documents, exams, health, onCreateUs
           ))}
         </div>
 
-        {activeTab === "users" ? <AdminUsersPanel busy={busy} onCreateUser={onCreateUser} onRefreshUsers={onRefreshUsers} users={users} /> : null}
-        {activeTab === "documents" ? <AdminRecordList records={documents} type="document" /> : null}
-        {activeTab === "exams" ? <AdminRecordList records={exams} type="exam" /> : null}
-        {activeTab === "activity" ? <AdminActivityList activities={activities} /> : null}
+        <div className="mb-5 flex justify-end">
+          <button className="btn btn-secondary" type="button" onClick={onRefresh} disabled={busy === "admin-data"}>
+            {busy === "admin-data" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Admin verilerini yenile
+          </button>
+        </div>
+
+        {activeTab === "users" ? (
+          <AdminUsersPanel busy={busy} currentUserId={session.user?.id} onCreateUser={onCreateUser} onDeleteUser={onDeleteUser} onRefreshUsers={onRefresh} users={users} />
+        ) : null}
+        {activeTab === "documents" ? <AdminRecordList records={adminDocuments} type="document" users={users} /> : null}
+        {activeTab === "exams" ? <AdminRecordList records={adminExams} type="exam" users={users} /> : null}
+        {activeTab === "activity" ? <AdminActivityList activities={adminActivities} users={users} /> : null}
       </section>
     </div>
   );
 }
 
-function AdminUsersPanel({ busy, onCreateUser, onRefreshUsers, users }) {
+function AdminUsersPanel({ busy, currentUserId, onCreateUser, onDeleteUser, onRefreshUsers, users }) {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -1103,8 +1151,8 @@ function AdminUsersPanel({ busy, onCreateUser, onRefreshUsers, users }) {
             <p className="label">Kullanıcı yönetimi</p>
             <h3 className="section-title">Yeni kullanıcı</h3>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={onRefreshUsers} disabled={busy === "admin-users"}>
-            {busy === "admin-users" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          <button className="btn btn-secondary" type="button" onClick={onRefreshUsers} disabled={busy === "admin-data"}>
+            {busy === "admin-data" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             Yenile
           </button>
         </div>
@@ -1141,6 +1189,15 @@ function AdminUsersPanel({ busy, onCreateUser, onRefreshUsers, users }) {
                 <div className="flex flex-wrap gap-2">
                   <Badge tone={user.role === "admin" ? "ready" : "idle"}>{user.role || "user"}</Badge>
                   <Badge tone={user.status}>{displayStatus(user.status || "active")}</Badge>
+                  <button
+                    className="btn btn-secondary"
+                    type="button"
+                    onClick={() => onDeleteUser(user.id)}
+                    disabled={!user.id || user.id === currentUserId || busy === `admin-delete-user-${user.id}`}
+                  >
+                    {busy === `admin-delete-user-${user.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    Sil
+                  </button>
                 </div>
               </div>
             </article>
@@ -1153,7 +1210,7 @@ function AdminUsersPanel({ busy, onCreateUser, onRefreshUsers, users }) {
   );
 }
 
-function AdminRecordList({ records, type }) {
+function AdminRecordList({ records, type, users }) {
   if (!records.length) {
     return <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">Henüz kayıt yok.</p>;
   }
@@ -1167,6 +1224,7 @@ function AdminRecordList({ records, type }) {
               <p className="label">{type === "document" ? "Doküman kaydı" : "Sınav kaydı"}</p>
               <h4 className="mt-1 break-words text-base font-black text-ink">{record.title || record.fileName || record.documentId || record.examId}</h4>
               <p className="mt-1 break-all text-xs text-muted">{record.documentId || record.examId || record.id}</p>
+              <p className="mt-2 text-xs text-muted">Kullanıcı: {userLabelForId(users, record.userId)}</p>
             </div>
             <Badge tone={record.status}>{displayStatus(record.status || "recorded")}</Badge>
           </div>
@@ -1177,26 +1235,50 @@ function AdminRecordList({ records, type }) {
   );
 }
 
-function AdminActivityList({ activities }) {
+function AdminActivityList({ activities, users }) {
+  const [selectedUserId, setSelectedUserId] = useState("all");
+  const filteredActivities = selectedUserId === "all" ? activities : activities.filter((event) => String(event.userId || "") === selectedUserId);
+
   if (!activities.length) {
     return <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">Henüz işlem kaydı yok.</p>;
   }
 
   return (
     <div className="grid gap-3">
-      {sortRecordsByDate(activities).map((event) => (
+      <label className="max-w-sm">
+        <span className="label">Kullanıcı filtresi</span>
+        <select className="field mt-1" value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)}>
+          <option value="all">Tüm kullanıcılar</option>
+          {users.map((user) => (
+            <option key={user.id || user.email} value={user.id}>
+              {user.displayName || user.email}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {sortRecordsByDate(filteredActivities).map((event) => (
         <article className="rounded-lg border border-space-line bg-black/25 p-4" key={event.id || `${event.eventId}-${event.eventType}-${event.createdAt}`}>
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-bold text-ink">{event.eventType || "activity.event"}</p>
             <Badge tone={event.status}>{displayStatus(event.status || "recorded")}</Badge>
           </div>
+          <p className="mt-2 text-xs text-muted">Kullanıcı: {userLabelForId(users, event.userId)}</p>
           <p className="mt-2 break-all text-xs text-muted">documentId: {event.documentId || "-"}</p>
           <p className="mt-2 text-sm leading-6 text-muted">{event.message || readableActivityMessage(event)}</p>
           <pre className="mt-4 max-h-44 overflow-auto rounded-lg border border-space-line bg-black/35 p-3 text-xs leading-5 text-muted">{JSON.stringify(event, null, 2)}</pre>
         </article>
       ))}
+      {!filteredActivities.length ? <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">Bu kullanıcı için işlem kaydı yok.</p> : null}
     </div>
   );
+}
+
+function userLabelForId(users, userId) {
+  const normalizedUserId = String(userId || "");
+  const user = users.find((item) => String(item.id || "") === normalizedUserId);
+  if (!user) return normalizedUserId || "-";
+  return `${user.displayName || user.email} (${user.email})`;
 }
 
 function isFailedExamRecord(exam) {

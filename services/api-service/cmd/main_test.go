@@ -266,6 +266,25 @@ func (f *fakeDocumentStore) ListAllDocuments(context.Context) ([]Document, error
 	return f.documents, nil
 }
 
+func (f *fakeDocumentStore) UpdateDocumentMetadata(_ context.Context, userID string, documentID string, metadata RecordMetadataRequest) (Document, error) {
+	if f.err != nil {
+		return Document{}, f.err
+	}
+	userObjectID, err := objectIDFromUserID(userID)
+	if err != nil {
+		return Document{}, err
+	}
+	for index, document := range f.documents {
+		if document.DocumentID == documentID && document.UserID == userObjectID {
+			f.documents[index].Favorite = metadata.Favorite
+			f.documents[index].Tags = metadata.Tags
+			f.documents[index].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			return f.documents[index], nil
+		}
+	}
+	return Document{}, errDocumentNotFound
+}
+
 func (f *fakeFileStore) SaveDocumentFile(_ context.Context, req PublishRequest, userID string) (bson.ObjectID, error) {
 	if f.err != nil {
 		return bson.ObjectID{}, f.err
@@ -303,6 +322,25 @@ func (f *fakeExamStore) ListAllExams(context.Context) ([]Exam, error) {
 		return nil, f.err
 	}
 	return f.exams, nil
+}
+
+func (f *fakeExamStore) UpdateExamMetadata(_ context.Context, userID string, examKey string, metadata RecordMetadataRequest) (Exam, error) {
+	if f.err != nil {
+		return Exam{}, f.err
+	}
+	userObjectID, err := objectIDFromUserID(userID)
+	if err != nil {
+		return Exam{}, err
+	}
+	for index, exam := range f.exams {
+		if exam.UserID == userObjectID && (exam.ID.Hex() == examKey || exam.DocumentID == examKey) {
+			f.exams[index].Favorite = metadata.Favorite
+			f.exams[index].Tags = metadata.Tags
+			f.exams[index].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			return f.exams[index], nil
+		}
+	}
+	return Exam{}, errExamNotFound
 }
 
 func (f *fakeActivityStore) CreateActivity(_ context.Context, event ActivityEvent) error {
@@ -614,6 +652,59 @@ func TestListDocumentsRequiresStore(t *testing.T) {
 	}
 }
 
+func TestUpdateDocumentMetadataReturnsOwnedRecord(t *testing.T) {
+	user := User{
+		ID:          bson.NewObjectID(),
+		Email:       "teacher@example.com",
+		DisplayName: "Teacher User",
+		Status:      userStatusActive,
+	}
+	documents := &fakeDocumentStore{documents: []Document{
+		{
+			ID:         bson.NewObjectID(),
+			UserID:     user.ID,
+			DocumentID: "doc-42",
+			FileName:   "week1.pdf",
+			Status:     documentStatusUploaded,
+		},
+	}}
+	req := httptest.NewRequest(http.MethodPatch, "/documents/doc-42/metadata", bytes.NewBufferString(`{"favorite":true,"tags":[" biology ","biology","#final"]}`))
+	req.Header.Set("Authorization", "Bearer "+testBearerTokenForUser(t, user))
+	rec := httptest.NewRecorder()
+
+	newServer(context.Background(), nil, "mock", nil, nil, documents, nil, testAuth, true).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !documents.documents[0].Favorite {
+		t.Fatal("expected document to be marked favorite")
+	}
+	if len(documents.documents[0].Tags) != 2 || documents.documents[0].Tags[0] != "biology" || documents.documents[0].Tags[1] != "final" {
+		t.Fatalf("expected normalized tags, got %#v", documents.documents[0].Tags)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"favorite":true`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"tags":["biology","final"]`)) {
+		t.Fatalf("expected metadata in response, got %s", rec.Body.String())
+	}
+}
+
+func TestUpdateDocumentMetadataDoesNotExposeOtherUsersRecord(t *testing.T) {
+	owner := User{ID: bson.NewObjectID(), Email: "owner@example.com", Status: userStatusActive}
+	requester := User{ID: bson.NewObjectID(), Email: "requester@example.com", Status: userStatusActive}
+	documents := &fakeDocumentStore{documents: []Document{
+		{ID: bson.NewObjectID(), UserID: owner.ID, DocumentID: "doc-42", Status: documentStatusUploaded},
+	}}
+	req := httptest.NewRequest(http.MethodPatch, "/documents/doc-42/metadata", bytes.NewBufferString(`{"favorite":true,"tags":["final"]}`))
+	req.Header.Set("Authorization", "Bearer "+testBearerTokenForUser(t, requester))
+	rec := httptest.NewRecorder()
+
+	newServer(context.Background(), nil, "mock", nil, nil, documents, nil, testAuth, true).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDocumentFileRequiresBearerToken(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/documents/doc-42/file", nil)
 	rec := httptest.NewRecorder()
@@ -738,6 +829,43 @@ func TestListExamsRequiresStore(t *testing.T) {
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", rec.Code)
+	}
+}
+
+func TestUpdateExamMetadataReturnsOwnedRecord(t *testing.T) {
+	user := User{
+		ID:          bson.NewObjectID(),
+		Email:       "teacher@example.com",
+		DisplayName: "Teacher User",
+		Status:      userStatusActive,
+	}
+	examID := bson.NewObjectID()
+	exams := &fakeExamStore{exams: []Exam{
+		{
+			ID:         examID,
+			UserID:     user.ID,
+			DocumentID: "doc-42",
+			Title:      "Exam for doc-42",
+			Status:     "created",
+		},
+	}}
+	req := httptest.NewRequest(http.MethodPatch, "/exams/"+examID.Hex()+"/metadata", bytes.NewBufferString(`{"favorite":true,"tags":["midterm"," midterm ","week-1"]}`))
+	req.Header.Set("Authorization", "Bearer "+testBearerTokenForUser(t, user))
+	rec := httptest.NewRecorder()
+
+	newServer(context.Background(), nil, "mock", nil, nil, nil, exams, testAuth, true).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !exams.exams[0].Favorite {
+		t.Fatal("expected exam to be marked favorite")
+	}
+	if len(exams.exams[0].Tags) != 2 || exams.exams[0].Tags[0] != "midterm" || exams.exams[0].Tags[1] != "week-1" {
+		t.Fatalf("expected normalized tags, got %#v", exams.exams[0].Tags)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"favorite":true`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"tags":["midterm","week-1"]`)) {
+		t.Fatalf("expected metadata in response, got %s", rec.Body.String())
 	}
 }
 

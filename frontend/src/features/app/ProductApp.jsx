@@ -262,6 +262,30 @@ export function ProductApp() {
     }
   }
 
+  async function updateRecordMetadata(type, recordKey, metadata) {
+    if (!session?.token || !recordKey) return false;
+    const path = `/${type === "exam" ? "exams" : "documents"}/${encodeURIComponent(recordKey)}/metadata`;
+    setBusy(`metadata-${type}-${recordKey}`);
+    setError("");
+    try {
+      await appRequest(path, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(metadata),
+      });
+      await loadArchive(session.token, { silent: true });
+      return true;
+    } catch (err) {
+      setError(err.message);
+      return false;
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function waitForAppExamRecord(token, documentId) {
     for (let attempt = 0; attempt < 60; attempt += 1) {
       const archive = await loadArchive(token, { silent: true });
@@ -647,25 +671,27 @@ export function ProductApp() {
           />
           <Route
             path="documents"
-            element={<DocumentArchivePage busy={busy} documents={documents} />}
+            element={<DocumentArchivePage busy={busy} documents={documents} onUpdateMetadata={(recordKey, metadata) => updateRecordMetadata("document", recordKey, metadata)} />}
           />
           <Route
             path="documents/:documentId"
             element={
               <DocumentDetailPage
                 activities={activities}
+                busy={busy}
                 documents={documents}
                 exams={exams}
+                onUpdateMetadata={(recordKey, metadata) => updateRecordMetadata("document", recordKey, metadata)}
               />
             }
           />
           <Route
             path="exams"
-            element={<ExamArchivePage busy={busy} exams={exams} />}
+            element={<ExamArchivePage busy={busy} exams={exams} onUpdateMetadata={(recordKey, metadata) => updateRecordMetadata("exam", recordKey, metadata)} />}
           />
           <Route
             path="exams/:examKey"
-            element={<ExamDetailPage exams={exams} />}
+            element={<ExamDetailPage busy={busy} exams={exams} onUpdateMetadata={(recordKey, metadata) => updateRecordMetadata("exam", recordKey, metadata)} />}
           />
           <Route
             path="profile"

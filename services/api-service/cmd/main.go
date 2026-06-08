@@ -114,6 +114,7 @@ type documentStore interface {
 	FindDocument(context.Context, string, string) (Document, error)
 	ListDocuments(context.Context, string) ([]Document, error)
 	ListAllDocuments(context.Context) ([]Document, error)
+	UpdateDocumentMetadata(context.Context, string, string, RecordMetadataRequest) (Document, error)
 }
 
 type mongoDocumentStore struct {
@@ -132,6 +133,7 @@ type mongoDocumentFileStore struct {
 type examStore interface {
 	ListExams(context.Context, string) ([]Exam, error)
 	ListAllExams(context.Context) ([]Exam, error)
+	UpdateExamMetadata(context.Context, string, string, RecordMetadataRequest) (Exam, error)
 }
 
 type mongoExamStore struct {
@@ -414,7 +416,11 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 		writeJSON(w, http.StatusOK, map[string]any{"documents": records})
 	})
 
-	documentFileHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	documentRecordHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := documentMetadataIDFromPath(r.URL.Path); ok {
+			updateDocumentMetadataHandler(documents).ServeHTTP(w, r)
+			return
+		}
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -504,6 +510,14 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 		writeJSON(w, http.StatusOK, map[string]any{"exams": records})
 	})
 
+	examRecordHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := examMetadataIDFromPath(r.URL.Path); ok {
+			updateExamMetadataHandler(exams).ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
 	listActivitiesHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -529,8 +543,9 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 
 	if authConfigured {
 		mux.Handle("/documents", auth.RequireAuth(listDocumentsHandler))
-		mux.Handle("/documents/", auth.RequireAuth(documentFileHandler))
+		mux.Handle("/documents/", auth.RequireAuth(documentRecordHandler))
 		mux.Handle("/exams", auth.RequireAuth(listExamsHandler))
+		mux.Handle("/exams/", auth.RequireAuth(examRecordHandler))
 		mux.Handle("/activity", auth.RequireAuth(listActivitiesHandler))
 	} else {
 		mux.HandleFunc("/documents", func(w http.ResponseWriter, r *http.Request) {
@@ -540,6 +555,9 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
 		})
 		mux.HandleFunc("/exams", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
+		})
+		mux.HandleFunc("/exams/", func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "auth token signing unavailable", http.StatusServiceUnavailable)
 		})
 		mux.HandleFunc("/activity", func(w http.ResponseWriter, r *http.Request) {
@@ -1392,7 +1410,7 @@ func withRequestLogging(service string, next http.Handler) http.Handler {
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 		if r.Method == http.MethodOptions {

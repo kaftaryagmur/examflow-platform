@@ -7,24 +7,30 @@ import { EmptyExamState } from "../components/EmptyExamState";
 import { ExamArchiveCard } from "../components/ExamArchiveCard";
 import { ExamFilters } from "../components/ExamFilters";
 
-export function ExamArchivePage({ busy, exams }) {
+export function ExamArchivePage({ busy, exams, onUpdateMetadata }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [validationFilter, setValidationFilter] = useState("all");
+  const [favoriteFilter, setFavoriteFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("all");
 
   const recentExams = useMemo(() => sortRecordsByDate(exams), [exams]);
   const statusOptions = useMemo(() => Array.from(new Set(exams.map((exam) => exam.status).filter(Boolean))).sort(), [exams]);
   const validationOptions = useMemo(() => Array.from(new Set(exams.map((exam) => exam.validationResult).filter(Boolean))).sort(), [exams]);
+  const tagOptions = useMemo(() => Array.from(new Set(exams.flatMap((exam) => (Array.isArray(exam.tags) ? exam.tags : [])).filter(Boolean))).sort(), [exams]);
   const filteredExams = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return recentExams.filter((exam) => {
-      const searchable = [exam.title, exam.documentId, exam.id, exam.status, exam.validationResult].filter(Boolean).join(" ").toLowerCase();
+      const tags = Array.isArray(exam.tags) ? exam.tags : [];
+      const searchable = [exam.title, exam.documentId, exam.id, exam.status, exam.validationResult, ...tags].filter(Boolean).join(" ").toLowerCase();
       const matchesQuery = !normalizedQuery || searchable.includes(normalizedQuery);
       const matchesStatus = statusFilter === "all" || exam.status === statusFilter;
       const matchesValidation = validationFilter === "all" || exam.validationResult === validationFilter;
-      return matchesQuery && matchesStatus && matchesValidation;
+      const matchesFavorite = favoriteFilter === "all" || Boolean(exam.favorite);
+      const matchesTag = tagFilter === "all" || tags.includes(tagFilter);
+      return matchesQuery && matchesStatus && matchesValidation && matchesFavorite && matchesTag;
     });
-  }, [query, recentExams, statusFilter, validationFilter]);
+  }, [favoriteFilter, query, recentExams, statusFilter, tagFilter, validationFilter]);
 
   const latestExam = recentExams[0];
   const validCount = exams.filter((exam) => String(exam.validationResult || exam.status || "").toLowerCase().includes("valid")).length;
@@ -62,10 +68,15 @@ export function ExamArchivePage({ busy, exams }) {
 
         <ExamFilters
           query={query}
+          favoriteFilter={favoriteFilter}
+          setFavoriteFilter={setFavoriteFilter}
           setQuery={setQuery}
           statusFilter={statusFilter}
           setStatusFilter={setStatusFilter}
           statusOptions={statusOptions}
+          tagFilter={tagFilter}
+          setTagFilter={setTagFilter}
+          tagOptions={tagOptions}
           validationFilter={validationFilter}
           setValidationFilter={setValidationFilter}
           validationOptions={validationOptions}
@@ -80,7 +91,7 @@ export function ExamArchivePage({ busy, exams }) {
 
         <div className="mt-5 grid gap-3">
           {filteredExams.length ? (
-            filteredExams.map((exam) => <ExamArchiveCard key={exam.id || exam.examId || `${exam.documentId}-${exam.createdAt}`} exam={exam} />)
+            filteredExams.map((exam) => <ExamArchiveCard busy={busy} key={exam.id || exam.examId || `${exam.documentId}-${exam.createdAt}`} exam={exam} onUpdateMetadata={onUpdateMetadata} />)
           ) : (
             <EmptyExamState hasExams={exams.length > 0} />
           )}

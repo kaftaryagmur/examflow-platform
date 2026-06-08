@@ -14,13 +14,14 @@ import {
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
+import { RecordMetadataControls } from "../../../components/recordMetadata";
 import { Badge } from "../../../components/status";
 import { defaultBaseUrl } from "../../../config/appConfig";
 import { displayStatus, parseRecordDate, sortRecordsByDate } from "../../../utils/format";
 import { readStoredSession } from "../../../utils/session";
 import { DocumentMeta } from "../components/DocumentMeta";
 
-export function DocumentDetailPage({ activities = [], documents, exams = [] }) {
+export function DocumentDetailPage({ activities = [], busy, documents, exams = [], onUpdateMetadata }) {
   const { documentId } = useParams();
   const decodedDocumentId = decodeURIComponent(documentId || "");
   const document = documents.find((item) => item.documentId === decodedDocumentId || item.id === decodedDocumentId);
@@ -42,6 +43,7 @@ export function DocumentDetailPage({ activities = [], documents, exams = [] }) {
   }
 
   const fileInfo = getFileInfo(document);
+  const recordKey = document.documentId || document.id || "";
   const linkedExams = exams.filter((exam) => exam.documentId === document.documentId || exam.documentId === document.id);
   const documentActivities = sortRecordsByDate(activities.filter((event) => event.documentId === document.documentId || event.documentId === document.id));
 
@@ -57,7 +59,15 @@ export function DocumentDetailPage({ activities = [], documents, exams = [] }) {
           <h3 className="mt-2 break-words text-3xl font-black text-ink">{document.fileName || document.title || "İsimsiz doküman"}</h3>
           <p className="mt-3 break-all text-sm leading-6 text-muted">{document.documentId || document.id}</p>
         </div>
-        <Badge tone={document.status}>{displayStatus(document.status || "recorded")}</Badge>
+        <div className="grid gap-3">
+          <Badge tone={document.status}>{displayStatus(document.status || "recorded")}</Badge>
+          <RecordMetadataControls
+            busy={busy === `metadata-document-${recordKey}`}
+            onChange={(metadata) => onUpdateMetadata?.(recordKey, metadata)}
+            record={document}
+            type="document"
+          />
+        </div>
       </section>
 
       <main className="grid gap-5">

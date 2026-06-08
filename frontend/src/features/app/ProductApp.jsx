@@ -12,16 +12,38 @@ import {
   User,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import {
+  Link,
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 
 import { ArchiveList } from "../../components/archive";
 import { Alert, Badge } from "../../components/status";
-import { appNav, defaultBaseUrl, demoPassword, sessionKey } from "../../config/appConfig";
+import {
+  appNav,
+  defaultBaseUrl,
+  demoPassword,
+  sessionKey,
+} from "../../config/appConfig";
 import { DocumentArchivePage, DocumentDetailPage } from "../documents";
 import { ExamArchivePage, ExamDetailPage } from "../exams";
 import { parseResponse, responseMessage } from "../../utils/api";
-import { compactTimestamp, delay, displayStatus, parseRecordDate, sortRecordsByDate, toneClass } from "../../utils/format";
+import {
+  compactTimestamp,
+  delay,
+  displayStatus,
+  parseRecordDate,
+  sortRecordsByDate,
+  toneClass,
+} from "../../utils/format";
 import { readStoredSession } from "../../utils/session";
+
+const markLogoSrc = "/assets/logo2.png";
 
 export function LoginPage() {
   const apiBaseUrl = defaultBaseUrl;
@@ -39,7 +61,15 @@ export function LoginPage() {
     const response = await fetch(apiPath(path), options);
     const parsed = await parseResponse(response);
     if (!parsed.ok) {
-      throw new Error(responseMessage(options.method || "GET", path, parsed.status, parsed.body, apiBaseUrl));
+      throw new Error(
+        responseMessage(
+          options.method || "GET",
+          path,
+          parsed.status,
+          parsed.body,
+          apiBaseUrl,
+        ),
+      );
     }
     return parsed.body;
   }
@@ -63,9 +93,16 @@ export function LoginPage() {
       const login = await authRequest("/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: values.email, password: values.password }),
+        body: JSON.stringify({
+          email: values.email,
+          password: values.password,
+        }),
       });
-      const nextSession = { email: values.email, token: login.token, user: login.user };
+      const nextSession = {
+        email: values.email,
+        token: login.token,
+        user: login.user,
+      };
       window.localStorage.setItem(sessionKey, JSON.stringify(nextSession));
       navigate(redirectTo, { replace: true });
     } catch (err) {
@@ -122,18 +159,31 @@ export function ProductApp() {
     const response = await fetch(apiPath(path), options);
     const parsed = await parseResponse(response);
     if (!parsed.ok) {
-      throw new Error(responseMessage(options.method || "GET", path, parsed.status, parsed.body, apiBaseUrl));
+      throw new Error(
+        responseMessage(
+          options.method || "GET",
+          path,
+          parsed.status,
+          parsed.body,
+          apiBaseUrl,
+        ),
+      );
     }
     return parsed.body;
   }
 
   function syncLastProcessFromArchive(nextDocuments, nextExams) {
     setLastProcess((current) => {
-      const activeDocumentId = current?.documentId || current?.payload?.documentId;
+      const activeDocumentId =
+        current?.documentId || current?.payload?.documentId;
       if (!activeDocumentId) return current;
 
-      const documentRecord = nextDocuments.find((item) => item.documentId === activeDocumentId);
-      const examRecord = nextExams.find((item) => item.documentId === activeDocumentId);
+      const documentRecord = nextDocuments.find(
+        (item) => item.documentId === activeDocumentId,
+      );
+      const examRecord = nextExams.find(
+        (item) => item.documentId === activeDocumentId,
+      );
       if (!examRecord) return current;
 
       const failed = isFailedExamRecord(examRecord);
@@ -146,7 +196,9 @@ export function ProductApp() {
         document: documentRecord || current?.document,
         exam: examRecord,
         status: failed ? "failed" : "ready",
-        stage: failed ? "Sınav kaydı hata durumunda" : "Sonuçlar görüntülenebilir",
+        stage: failed
+          ? "Sınav kaydı hata durumunda"
+          : "Sonuçlar görüntülenebilir",
         finishedAt: current?.finishedAt || new Date().toISOString(),
       };
     });
@@ -156,11 +208,18 @@ export function ProductApp() {
     setBusy("status");
     setError("");
     try {
-      const [healthBody, readyBody] = await Promise.all([appRequest("/health"), appRequest("/ready")]);
+      const [healthBody, readyBody] = await Promise.all([
+        appRequest("/health"),
+        appRequest("/ready"),
+      ]);
       setHealth(healthBody);
       setReady(readyBody);
     } catch (err) {
-      setHealth({ status: "error", service: "api-service", mode: "unreachable" });
+      setHealth({
+        status: "error",
+        service: "api-service",
+        mode: "unreachable",
+      });
       setReady({ status: "error", databaseStatus: "unknown" });
       setError(err.message);
     } finally {
@@ -188,7 +247,11 @@ export function ProductApp() {
       setExams(nextExams);
       setActivities(nextActivities);
       syncLastProcessFromArchive(nextDocuments, nextExams);
-      return { documents: nextDocuments, exams: nextExams, activities: nextActivities };
+      return {
+        documents: nextDocuments,
+        exams: nextExams,
+        activities: nextActivities,
+      };
     } catch (err) {
       setError(err.message);
       return { documents: [], exams: [], activities: [] };
@@ -202,8 +265,12 @@ export function ProductApp() {
   async function waitForAppExamRecord(token, documentId) {
     for (let attempt = 0; attempt < 60; attempt += 1) {
       const archive = await loadArchive(token, { silent: true });
-      const documentRecord = archive.documents.find((item) => item.documentId === documentId);
-      const examRecord = archive.exams.find((item) => item.documentId === documentId);
+      const documentRecord = archive.documents.find(
+        (item) => item.documentId === documentId,
+      );
+      const examRecord = archive.exams.find(
+        (item) => item.documentId === documentId,
+      );
       const failed = isFailedExamRecord(examRecord);
 
       if (documentRecord || examRecord) {
@@ -212,7 +279,11 @@ export function ProductApp() {
           document: documentRecord || current?.document,
           exam: examRecord || current?.exam,
           status: examRecord ? (failed ? "failed" : "ready") : "processing",
-          stage: examRecord ? (failed ? "Sınav kaydı hata durumunda" : "Sınav kaydı oluşturuldu") : "Doküman kaydı oluşturuldu",
+          stage: examRecord
+            ? failed
+              ? "Sınav kaydı hata durumunda"
+              : "Sınav kaydı oluşturuldu"
+            : "Doküman kaydı oluşturuldu",
         }));
       }
 
@@ -283,17 +354,25 @@ export function ProductApp() {
       const result = await waitForAppExamRecord(session.token, documentId);
       if (result.exam) {
         const failed = isFailedExamRecord(result.exam);
-        setProcessNotice(failed ? "Sınav kaydı hata durumunda arşive düştü." : "Doküman işlendi ve sınav kaydı arşive düştü.");
+        setProcessNotice(
+          failed
+            ? "Sınav kaydı hata durumunda arşive düştü."
+            : "Doküman işlendi ve sınav kaydı arşive düştü.",
+        );
         setLastProcess((current) => ({
           ...current,
           document: result.document || current?.document,
           exam: result.exam,
           status: failed ? "failed" : "ready",
-          stage: failed ? "Sınav kaydı hata durumunda" : "Sonuçlar görüntülenebilir",
+          stage: failed
+            ? "Sınav kaydı hata durumunda"
+            : "Sonuçlar görüntülenebilir",
           finishedAt: new Date().toISOString(),
         }));
       } else {
-        setProcessNotice("İstek alındı; arka plan servisleri sonucu üretmeye devam ediyor olabilir. Arşivi yenileyerek tekrar kontrol edebilirsin.");
+        setProcessNotice(
+          "İstek alındı; arka plan servisleri sonucu üretmeye devam ediyor olabilir. Arşivi yenileyerek tekrar kontrol edebilirsin.",
+        );
         setLastProcess((current) => ({
           ...current,
           status: "processing",
@@ -334,12 +413,13 @@ export function ProductApp() {
     setError("");
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [userBody, documentBody, examBody, activityBody] = await Promise.all([
-        appRequest("/admin/users", { headers }),
-        appRequest("/admin/documents", { headers }),
-        appRequest("/admin/exams", { headers }),
-        appRequest("/admin/activity", { headers }),
-      ]);
+      const [userBody, documentBody, examBody, activityBody] =
+        await Promise.all([
+          appRequest("/admin/users", { headers }),
+          appRequest("/admin/documents", { headers }),
+          appRequest("/admin/exams", { headers }),
+          appRequest("/admin/activity", { headers }),
+        ]);
       const nextUsers = userBody.users || [];
       const nextDocuments = documentBody.documents || [];
       const nextExams = examBody.exams || [];
@@ -348,7 +428,12 @@ export function ProductApp() {
       setAdminDocuments(nextDocuments);
       setAdminExams(nextExams);
       setAdminActivities(nextActivities);
-      return { users: nextUsers, documents: nextDocuments, exams: nextExams, activities: nextActivities };
+      return {
+        users: nextUsers,
+        documents: nextDocuments,
+        exams: nextExams,
+        activities: nextActivities,
+      };
     } catch (err) {
       setError(err.message);
       return { users: [], documents: [], exams: [], activities: [] };
@@ -411,7 +496,11 @@ export function ProductApp() {
         },
         body: JSON.stringify(values),
       });
-      const nextSession = { email: body.user.email, token: body.token || session.token, user: body.user };
+      const nextSession = {
+        email: body.user.email,
+        token: body.token || session.token,
+        user: body.user,
+      };
       setSession(nextSession);
       window.localStorage.setItem(sessionKey, JSON.stringify(nextSession));
       return true;
@@ -437,14 +526,20 @@ export function ProductApp() {
   }, [session?.token]);
 
   useEffect(() => {
-    if (!session?.token || lastProcess?.status !== "processing") return undefined;
+    if (!session?.token || lastProcess?.status !== "processing")
+      return undefined;
 
     const intervalId = window.setInterval(() => {
       loadArchive(session.token, { silent: true });
     }, 5000);
 
     return () => window.clearInterval(intervalId);
-  }, [session?.token, lastProcess?.status, lastProcess?.documentId, lastProcess?.payload?.documentId]);
+  }, [
+    session?.token,
+    lastProcess?.status,
+    lastProcess?.documentId,
+    lastProcess?.payload?.documentId,
+  ]);
 
   if (!session?.token) {
     return <Navigate to="/login" replace />;
@@ -454,42 +549,65 @@ export function ProductApp() {
     <main className="app-shell">
       <aside className="app-sidebar">
         <div className="flex items-center gap-3">
-          <div className="brand-mark">E</div>
+          <img className="brand-logo" src={markLogoSrc} alt="ExamFlow logo" />
           <div className="min-w-0">
             <p className="label">ExamFlow</p>
-            <h1 className="truncate text-lg font-black text-ink">Kullanıcı alanı</h1>
+            <h1 className="truncate text-lg font-black text-ink">
+              Kontrol Paneli
+            </h1>
           </div>
         </div>
 
         <nav className="mt-8 grid gap-2" aria-label="Uygulama menüsü">
-          {appNav.filter((item) => item.to !== "/app/admin" || isAdmin).map((item) => (
-            <AppNavItem key={item.to} item={item} />
-          ))}
+          {appNav
+            .filter((item) => item.to !== "/app/admin" || isAdmin)
+            .map((item) => (
+              <AppNavItem key={item.to} item={item} />
+            ))}
         </nav>
-
       </aside>
 
       <section className="app-main">
         <header className="app-topbar">
-          <div>
-            <p className="label">Authenticated frontend</p>
-            <h2 className="text-2xl font-black text-ink">ExamFlow kullanıcı paneli</h2>
+          <div className="self-start">
+            <h2 className="text-2xl font-black text-ink">
+              ExamFlow Kullanıcı Paneli
+            </h2>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
-            <button className="btn btn-secondary" type="button" onClick={() => loadArchive()} disabled={busy === "archive"}>
-              {busy === "archive" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            <button
+              className="btn btn-secondary"
+              type="button"
+              onClick={() => loadArchive()}
+              disabled={busy === "archive"}
+            >
+              {busy === "archive" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
               Arşivi yenile
             </button>
             <div className="flex min-w-[320px] items-center gap-4 rounded-lg border border-space-line bg-black/25 px-4 py-3">
               <div className="min-w-0">
                 <p className="label">Giriş yapan kullanıcı</p>
-                <p className="mt-1 truncate text-sm font-bold text-ink">{session.user?.displayName || session.email}</p>
+                <p className="mt-1 truncate text-sm font-bold text-ink">
+                  {session.user?.displayName || session.email}
+                </p>
               </div>
-              <button className="btn btn-secondary ml-auto" type="button" onClick={() => navigate("/app/profile")}>
+              <button
+                className="btn btn-secondary ml-auto"
+                type="button"
+                onClick={() => navigate("/app/profile")}
+              >
                 <User className="h-4 w-4" />
                 Profil
               </button>
-              <button className="btn btn-secondary" type="button" onClick={logout}>
+              <button
+                className="btn btn-secondary"
+                type="button"
+                onClick={logout}
+              >
                 <User className="h-4 w-4" />
                 Çıkış yap
               </button>
@@ -527,11 +645,38 @@ export function ProductApp() {
               />
             }
           />
-          <Route path="documents" element={<DocumentArchivePage busy={busy} documents={documents} />} />
-          <Route path="documents/:documentId" element={<DocumentDetailPage activities={activities} documents={documents} exams={exams} />} />
-          <Route path="exams" element={<ExamArchivePage busy={busy} exams={exams} />} />
-          <Route path="exams/:examKey" element={<ExamDetailPage exams={exams} />} />
-          <Route path="profile" element={<ProfileWorkspace busy={busy} onSubmit={updateProfile} session={session} />} />
+          <Route
+            path="documents"
+            element={<DocumentArchivePage busy={busy} documents={documents} />}
+          />
+          <Route
+            path="documents/:documentId"
+            element={
+              <DocumentDetailPage
+                activities={activities}
+                documents={documents}
+                exams={exams}
+              />
+            }
+          />
+          <Route
+            path="exams"
+            element={<ExamArchivePage busy={busy} exams={exams} />}
+          />
+          <Route
+            path="exams/:examKey"
+            element={<ExamDetailPage exams={exams} />}
+          />
+          <Route
+            path="profile"
+            element={
+              <ProfileWorkspace
+                busy={busy}
+                onSubmit={updateProfile}
+                session={session}
+              />
+            }
+          />
           <Route
             path="admin"
             element={
@@ -578,7 +723,7 @@ function AuthPanel({ busy, error, onSubmit }) {
   return (
     <section className="auth-card">
       <div className="flex items-center gap-3">
-        <div className="brand-mark">E</div>
+        <img className="brand-logo" src={markLogoSrc} alt="ExamFlow logo" />
         <div>
           <p className="label">ExamFlow</p>
           <h1 className="text-xl font-black text-ink">Hesabına giriş yap</h1>
@@ -586,10 +731,18 @@ function AuthPanel({ busy, error, onSubmit }) {
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg border border-space-line bg-black/20 p-1">
-        <button className={`segmented-btn ${mode === "login" ? "active" : ""}`} type="button" onClick={() => setMode("login")}>
+        <button
+          className={`segmented-btn ${mode === "login" ? "active" : ""}`}
+          type="button"
+          onClick={() => setMode("login")}
+        >
           Giriş yap
         </button>
-        <button className={`segmented-btn ${mode === "register" ? "active" : ""}`} type="button" onClick={() => setMode("register")}>
+        <button
+          className={`segmented-btn ${mode === "register" ? "active" : ""}`}
+          type="button"
+          onClick={() => setMode("register")}
+        >
           Kayıt ol
         </button>
       </div>
@@ -597,25 +750,53 @@ function AuthPanel({ busy, error, onSubmit }) {
       <form className="mt-4 grid gap-3" onSubmit={submit}>
         <label>
           <span className="label">Email</span>
-          <input className="field mt-1" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          <input
+            className="field mt-1"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+          />
         </label>
         {mode === "register" ? (
           <label>
             <span className="label">Görünen ad</span>
-            <input className="field mt-1" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+            <input
+              className="field mt-1"
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+            />
           </label>
         ) : null}
         <label>
           <span className="label">Şifre</span>
-          <input className="field mt-1" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+          <input
+            className="field mt-1"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+          />
         </label>
-        <button className="btn btn-primary" type="submit" disabled={busy === "auth"}>
-          {busy === "auth" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+        <button
+          className="btn btn-primary"
+          type="submit"
+          disabled={busy === "auth"}
+        >
+          {busy === "auth" ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ShieldCheck className="h-4 w-4" />
+          )}
           {mode === "login" ? "Giriş yap" : "Hesap oluştur"}
         </button>
       </form>
 
-      {error ? <p className="mt-3 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{error}</p> : null}
+      {error ? (
+        <p className="mt-3 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -623,7 +804,10 @@ function AuthPanel({ busy, error, onSubmit }) {
 function AppNavItem({ item }) {
   const Icon = item.icon;
   return (
-    <NavLink className={({ isActive }) => `app-nav-item ${isActive ? "active" : ""}`} to={item.to}>
+    <NavLink
+      className={({ isActive }) => `app-nav-item ${isActive ? "active" : ""}`}
+      to={item.to}
+    >
       <Icon className="h-4 w-4" />
       {item.label}
     </NavLink>
@@ -655,24 +839,52 @@ function AppOverview({
   const recentExams = sortRecordsByDate(exams);
   const latestDocument = recentDocuments[0];
   const latestExam = recentExams[0];
-  const lastStatus = lastProcess?.status || latestExam?.status || latestDocument?.status || "waiting";
+  const lastStatus =
+    lastProcess?.status ||
+    latestExam?.status ||
+    latestDocument?.status ||
+    "waiting";
 
   return (
     <div className="grid gap-5">
       <section className="app-hero">
         <div>
           <p className="label">Genel bakış</p>
-          <h3 className="mt-2 text-3xl font-black text-ink">Doküman yükle, sınavını oluştur, sonucu aynı ekranda izle.</h3>
+          <h3 className="mt-2 text-3xl font-black text-ink">
+            Doküman yükle, sınavını oluştur, sonucu aynı ekranda izle.
+          </h3>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
-            Ders notlarını yükleyerek sınav soruları ve çalışma kartları oluşturabilirsin. Geçmiş doküman ve sınavlarına arşivden ulaşabilirsin.
+            Ders notlarını yükleyerek sınav soruları ve çalışma kartları
+            oluşturabilirsin. Geçmiş doküman ve sınavlarına arşivden
+            ulaşabilirsin.
           </p>
         </div>
       </section>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <InsightCard icon={FileText} title="Toplam doküman" value={documents.length} tone="ok" detail={latestDocument?.fileName || "Henüz kayıt yok"} />
-        <InsightCard icon={ClipboardList} title="Toplam sınav" value={exams.length} tone="ready" detail={latestExam?.title || latestExam?.documentId || "Henüz kayıt yok"} />
-        <InsightCard icon={Activity} title="Son işlem" value={displayStatus(lastStatus)} tone={lastStatus} detail={lastProcess?.stage || "Yeni doküman bekleniyor"} />
+        <InsightCard
+          icon={FileText}
+          title="Toplam doküman"
+          value={documents.length}
+          tone="ok"
+          detail={latestDocument?.fileName || "Henüz kayıt yok"}
+        />
+        <InsightCard
+          icon={ClipboardList}
+          title="Toplam sınav"
+          value={exams.length}
+          tone="ready"
+          detail={
+            latestExam?.title || latestExam?.documentId || "Henüz kayıt yok"
+          }
+        />
+        <InsightCard
+          icon={Activity}
+          title="Son işlem"
+          value={displayStatus(lastStatus)}
+          tone={lastStatus}
+          detail={lastProcess?.stage || "Yeni doküman bekleniyor"}
+        />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(320px,0.95fr)_minmax(420px,1.05fr)]">
@@ -691,12 +903,25 @@ function AppOverview({
           setSelectedFile={setSelectedFile}
           source={source}
         />
-        <DashboardResultPanel lastProcess={lastProcess} latestDocument={latestDocument} latestExam={latestExam} notice={processNotice} />
+        <DashboardResultPanel
+          lastProcess={lastProcess}
+          latestDocument={latestDocument}
+          latestExam={latestExam}
+          notice={processNotice}
+        />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
-        <WorkspaceRecords title="Son yüklenen dokümanlar" records={recentDocuments.slice(0, 4)} empty="Henüz doküman kaydı yok." />
-        <WorkspaceRecords title="Son oluşturulan sınavlar" records={recentExams.slice(0, 4)} empty="Henüz sınav kaydı yok." />
+        <WorkspaceRecords
+          title="Son yüklenen dokümanlar"
+          records={recentDocuments.slice(0, 4)}
+          empty="Henüz doküman kaydı yok."
+        />
+        <WorkspaceRecords
+          title="Son oluşturulan sınavlar"
+          records={recentExams.slice(0, 4)}
+          empty="Henüz sınav kaydı yok."
+        />
       </div>
     </div>
   );
@@ -725,7 +950,10 @@ function DashboardPublishPanel({
         <div>
           <p className="label">Yeni işlem</p>
           <h3 className="section-title">Doküman gönderimi</h3>
-          <p className="mt-2 text-sm leading-6 text-muted">Ders notunu yükle; sistem bu dokümandan sınav soruları ve çalışma kartları oluştursun.</p>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            Ders notunu yükle; sistem bu dokümandan sınav soruları ve çalışma
+            kartları oluştursun.
+          </p>
         </div>
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan">
           <FileUp className="h-5 w-5" />
@@ -739,7 +967,9 @@ function DashboardPublishPanel({
             className="field mt-1 h-auto cursor-pointer py-2 file:mr-3 file:rounded-md file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-sm file:font-bold file:text-ink hover:file:bg-neon-cyan/20"
             type="file"
             accept=".pdf,.docx"
-            onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+            onChange={(event) =>
+              setSelectedFile(event.target.files?.[0] || null)
+            }
           />
         </label>
 
@@ -757,7 +987,11 @@ function DashboardPublishPanel({
           </label>
           <label className="block">
             <span className="label">Zorluk</span>
-            <select className="field mt-1" value={difficulty} onChange={(event) => setDifficulty(event.target.value)}>
+            <select
+              className="field mt-1"
+              value={difficulty}
+              onChange={(event) => setDifficulty(event.target.value)}
+            >
               <option value="mixed">Karışık</option>
               <option value="easy">Kolay</option>
               <option value="medium">Orta</option>
@@ -788,12 +1022,25 @@ function DashboardPublishPanel({
         </label>
 
         <div className="rounded-lg border border-space-line bg-black/25 p-4">
-          <p className="text-sm font-bold text-ink">{selectedFile?.name || "PDF veya DOCX dosyasi sec"}</p>
-          <p className="mt-1 text-xs leading-5 text-muted">Yükleme tamamlandığında sonucu bu ekranda ve arşivlerde görebilirsin.</p>
+          <p className="text-sm font-bold text-ink">
+            {selectedFile?.name || "PDF veya DOCX dosyasi sec"}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-muted">
+            Yükleme tamamlandığında sonucu bu ekranda ve arşivlerde
+            görebilirsin.
+          </p>
         </div>
 
-        <button className="btn btn-primary w-full" type="submit" disabled={isPublishing || !selectedFile}>
-          {isPublishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
+        <button
+          className="btn btn-primary w-full"
+          type="submit"
+          disabled={isPublishing || !selectedFile}
+        >
+          {isPublishing ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Cloud className="h-4 w-4" />
+          )}
           {isPublishing ? "Akış izleniyor" : "Dokümanı işle ve sonucu getir"}
         </button>
       </form>
@@ -801,7 +1048,12 @@ function DashboardPublishPanel({
   );
 }
 
-function DashboardResultPanel({ lastProcess, latestDocument, latestExam, notice }) {
+function DashboardResultPanel({
+  lastProcess,
+  latestDocument,
+  latestExam,
+  notice,
+}) {
   const documentRecord = lastProcess?.document || latestDocument;
   const examRecord = lastProcess?.exam || latestExam;
   const status = lastProcess?.status || (examRecord ? "ready" : "waiting");
@@ -812,19 +1064,37 @@ function DashboardResultPanel({ lastProcess, latestDocument, latestExam, notice 
         <div>
           <p className="label">Sonuç ekranı</p>
           <h3 className="section-title">Son işlem sonucu</h3>
-          <p className="mt-2 text-sm leading-6 text-muted">Yüklediğin dokümanın işlenme durumunu ve oluşan sınavı burada görebilirsin.</p>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            Yüklediğin dokümanın işlenme durumunu ve oluşan sınavı burada
+            görebilirsin.
+          </p>
         </div>
         <Badge tone={status}>{displayStatus(status)}</Badge>
       </div>
 
-      {notice ? <Alert tone={status === "ready" ? "ok" : "pending"} message={notice} /> : null}
-      {lastProcess?.error ? <Alert tone="failed" message={lastProcess.error} /> : null}
+      {notice ? (
+        <Alert tone={status === "ready" ? "ok" : "pending"} message={notice} />
+      ) : null}
+      {lastProcess?.error ? (
+        <Alert tone="failed" message={lastProcess.error} />
+      ) : null}
 
       <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <ResultRecordCard fallback="Henüz doküman sonucu yok." icon={FileText} label="Doküman kaydı" record={documentRecord} title={documentRecord?.fileName || lastProcess?.fileName} />
-        <ResultRecordCard fallback="Henüz sınav sonucu yok." icon={ClipboardList} label="Sınav kaydı" record={examRecord} title={examRecord?.title || "Oluşturulan sınav"} />
+        <ResultRecordCard
+          fallback="Henüz doküman sonucu yok."
+          icon={FileText}
+          label="Doküman kaydı"
+          record={documentRecord}
+          title={documentRecord?.fileName || lastProcess?.fileName}
+        />
+        <ResultRecordCard
+          fallback="Henüz sınav sonucu yok."
+          icon={ClipboardList}
+          label="Sınav kaydı"
+          record={examRecord}
+          title={examRecord?.title || "Oluşturulan sınav"}
+        />
       </div>
-
     </section>
   );
 }
@@ -835,23 +1105,31 @@ function ResultRecordCard({ fallback, icon: Icon, label, record, title }) {
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="label">{label}</p>
-          <p className="mt-1 break-words text-sm font-bold text-ink">{title || fallback}</p>
+          <p className="mt-1 break-words text-sm font-bold text-ink">
+            {title || fallback}
+          </p>
         </div>
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border ${toneClass(record ? "ok" : "idle")}`}>
+        <div
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border ${toneClass(record ? "ok" : "idle")}`}
+        >
           <Icon className="h-5 w-5" />
         </div>
       </div>
       {record ? (
         <div className="grid gap-2 text-xs text-muted">
           <p>
-            <span className="font-bold text-ink">Durum:</span> {displayStatus(record.status || "recorded")}
+            <span className="font-bold text-ink">Durum:</span>{" "}
+            {displayStatus(record.status || "recorded")}
           </p>
           <p>
-            <span className="font-bold text-ink">Tarih:</span> {parseRecordDate(record.updatedAt || record.createdAt)}
+            <span className="font-bold text-ink">Tarih:</span>{" "}
+            {parseRecordDate(record.updatedAt || record.createdAt)}
           </p>
         </div>
       ) : (
-        <p className="text-xs leading-5 text-muted">Yeni bir doküman gönderdiğinde sonuçlar burada görünecek.</p>
+        <p className="text-xs leading-5 text-muted">
+          Yeni bir doküman gönderdiğinde sonuçlar burada görünecek.
+        </p>
       )}
     </article>
   );
@@ -864,9 +1142,13 @@ function InsightCard({ detail, icon: Icon, title, value, tone }) {
         <div className="min-w-0">
           <p className="label">{title}</p>
           <p className="mt-3 text-2xl font-black text-ink">{value}</p>
-          {detail ? <p className="mt-1 truncate text-xs text-muted">{detail}</p> : null}
+          {detail ? (
+            <p className="mt-1 truncate text-xs text-muted">{detail}</p>
+          ) : null}
         </div>
-        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border ${toneClass(tone)}`}>
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border ${toneClass(tone)}`}
+        >
           <Icon className="h-5 w-5" />
         </div>
       </div>
@@ -882,7 +1164,9 @@ function WorkspaceRecords({ empty, records, title }) {
           <p className="label">Arşiv</p>
           <h3 className="section-title">{title}</h3>
         </div>
-        <Badge tone={records.length ? "ok" : "idle"}>{records.length} kayıt</Badge>
+        <Badge tone={records.length ? "ok" : "idle"}>
+          {records.length} kayıt
+        </Badge>
       </div>
       <ArchiveList records={records} empty={empty} />
     </section>
@@ -898,29 +1182,56 @@ function ActivityWorkspace({ activities }) {
       if (!event.documentId) continue;
       const status = String(event.status || "").toLowerCase();
       if (status === "failed") statuses.set(event.documentId, "failed");
-      if (status === "validated" && statuses.get(event.documentId) !== "failed") statuses.set(event.documentId, "validated");
+      if (status === "validated" && statuses.get(event.documentId) !== "failed")
+        statuses.set(event.documentId, "validated");
     }
     return statuses;
   }, [activities]);
   const events = useMemo(
     () =>
       sortRecordsByDate(activities).map((event) => {
-        const displayStatusValue = resolveActivityDisplayStatus(event, terminalStatusByDocument);
+        const displayStatusValue = resolveActivityDisplayStatus(
+          event,
+          terminalStatusByDocument,
+        );
         return {
           ...event,
           displayStatus: displayStatusValue,
-          displayMessage: resolveActivityDisplayMessage(event, displayStatusValue, terminalStatusByDocument),
+          displayMessage: resolveActivityDisplayMessage(
+            event,
+            displayStatusValue,
+            terminalStatusByDocument,
+          ),
         };
       }),
     [activities, terminalStatusByDocument],
   );
-  const statusOptions = useMemo(() => Array.from(new Set(events.map((event) => event.displayStatus).filter(Boolean))).sort(), [events]);
+  const statusOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(events.map((event) => event.displayStatus).filter(Boolean)),
+      ).sort(),
+    [events],
+  );
   const filteredEvents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return events.filter((event) => {
-      const searchable = [event.documentId, event.eventId, event.eventType, event.displayStatus, event.service, event.displayMessage, event.error].filter(Boolean).join(" ").toLowerCase();
-      const matchesQuery = !normalizedQuery || searchable.includes(normalizedQuery);
-      const matchesStatus = statusFilter === "all" || event.displayStatus === statusFilter;
+      const searchable = [
+        event.documentId,
+        event.eventId,
+        event.eventType,
+        event.displayStatus,
+        event.service,
+        event.displayMessage,
+        event.error,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const matchesQuery =
+        !normalizedQuery || searchable.includes(normalizedQuery);
+      const matchesStatus =
+        statusFilter === "all" || event.displayStatus === statusFilter;
       return matchesQuery && matchesStatus;
     });
   }, [events, query, statusFilter]);
@@ -932,10 +1243,13 @@ function ActivityWorkspace({ activities }) {
           <p className="label">Activity</p>
           <h3 className="mt-2 text-3xl font-black text-ink">İşlem geçmişi</h3>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
-            API, Worker, Validation ve Exam servislerinden gelen kalıcı event kayıtları documentId üzerinden izlenir.
+            API, Worker, Validation ve Exam servislerinden gelen kalıcı event
+            kayıtları documentId üzerinden izlenir.
           </p>
         </div>
-        <Badge tone={activities.length ? "ok" : "idle"}>{activities.length} olay</Badge>
+        <Badge tone={activities.length ? "ok" : "idle"}>
+          {activities.length} olay
+        </Badge>
       </section>
 
       <section className="panel p-5">
@@ -944,17 +1258,28 @@ function ActivityWorkspace({ activities }) {
             <p className="label">Arama ve filtreler</p>
             <h3 className="section-title">Event geçmişi</h3>
           </div>
-          <Badge tone={filteredEvents.length ? "ok" : "idle"}>{filteredEvents.length} sonuç</Badge>
+          <Badge tone={filteredEvents.length ? "ok" : "idle"}>
+            {filteredEvents.length} sonuç
+          </Badge>
         </div>
 
         <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
           <label>
             <span className="label">documentId, event veya hata ara</span>
-            <input className="field mt-1" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="örn. app-2026, validation, failed" />
+            <input
+              className="field mt-1"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="örn. app-2026, validation, failed"
+            />
           </label>
           <label>
             <span className="label">Durum</span>
-            <select className="field mt-1" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <select
+              className="field mt-1"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            >
               <option value="all">Tüm durumlar</option>
               {statusOptions.map((status) => (
                 <option key={status} value={status}>
@@ -968,32 +1293,59 @@ function ActivityWorkspace({ activities }) {
         {filteredEvents.length ? (
           <div className="mt-5 grid gap-3">
             {filteredEvents.map((event) => (
-              <article key={event.id || `${event.eventId}-${event.eventType}-${event.createdAt}`} className="rounded-lg border border-space-line bg-black/25 p-4">
+              <article
+                key={
+                  event.id ||
+                  `${event.eventId}-${event.eventType}-${event.createdAt}`
+                }
+                className="rounded-lg border border-space-line bg-black/25 p-4"
+              >
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-bold text-ink">{event.eventType || "activity.event"}</p>
-                      <Badge tone={event.displayStatus}>{displayStatus(event.displayStatus || "recorded")}</Badge>
+                      <p className="font-bold text-ink">
+                        {event.eventType || "activity.event"}
+                      </p>
+                      <Badge tone={event.displayStatus}>
+                        {displayStatus(event.displayStatus || "recorded")}
+                      </Badge>
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-muted">{event.displayMessage || readableActivityMessage(event)}</p>
-                    {event.error ? <p className="mt-2 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{readableActivityError(event)}</p> : null}
+                    <p className="mt-2 text-sm leading-6 text-muted">
+                      {event.displayMessage || readableActivityMessage(event)}
+                    </p>
+                    {event.error ? (
+                      <p className="mt-2 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+                        {readableActivityError(event)}
+                      </p>
+                    ) : null}
                     <div className="mt-3 grid gap-2 text-xs text-muted md:grid-cols-2">
                       <p>
-                        <span className="font-bold text-ink">documentId:</span> <span className="break-all">{event.documentId || "-"}</span>
+                        <span className="font-bold text-ink">documentId:</span>{" "}
+                        <span className="break-all">
+                          {event.documentId || "-"}
+                        </span>
                       </p>
                       <p>
-                        <span className="font-bold text-ink">Servis:</span> {event.service || "-"}
+                        <span className="font-bold text-ink">Servis:</span>{" "}
+                        {event.service || "-"}
                       </p>
                       <p>
-                        <span className="font-bold text-ink">eventId:</span> <span className="break-all">{event.eventId || "-"}</span>
+                        <span className="font-bold text-ink">eventId:</span>{" "}
+                        <span className="break-all">
+                          {event.eventId || "-"}
+                        </span>
                       </p>
                       <p>
-                        <span className="font-bold text-ink">Tarih:</span> {parseRecordDate(event.createdAt)}
+                        <span className="font-bold text-ink">Tarih:</span>{" "}
+                        {parseRecordDate(event.createdAt)}
                       </p>
                     </div>
                   </div>
                   {event.documentId ? (
-                    <Link className="btn btn-secondary shrink-0" to={`/app/documents/${encodeURIComponent(event.documentId)}`}>
+                    <Link
+                      className="btn btn-secondary shrink-0"
+                      to={`/app/documents/${encodeURIComponent(event.documentId)}`}
+                    >
                       <FileText className="h-4 w-4" />
                       Dokümana git
                     </Link>
@@ -1011,7 +1363,9 @@ function ActivityWorkspace({ activities }) {
 }
 
 function ProfileWorkspace({ busy, onSubmit, session }) {
-  const [displayName, setDisplayName] = useState(session.user?.displayName || "");
+  const [displayName, setDisplayName] = useState(
+    session.user?.displayName || "",
+  );
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [notice, setNotice] = useState("");
@@ -1037,7 +1391,9 @@ function ProfileWorkspace({ busy, onSubmit, session }) {
         <div>
           <p className="label">Profil</p>
           <h3 className="mt-2 text-3xl font-black text-ink">Hesap bilgileri</h3>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">Adını ve şifreni buradan güncelleyebilirsin.</p>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
+            Adını ve şifreni buradan güncelleyebilirsin.
+          </p>
         </div>
         <Badge tone="ok">{session.user?.status || "active"}</Badge>
       </section>
@@ -1052,20 +1408,43 @@ function ProfileWorkspace({ busy, onSubmit, session }) {
           </label>
           <label>
             <span className="label">Görünen ad</span>
-            <input className="field mt-1" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required />
+            <input
+              className="field mt-1"
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              required
+            />
           </label>
           <div className="grid gap-4 md:grid-cols-2">
             <label>
               <span className="label">Mevcut şifre</span>
-              <input className="field mt-1" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+              <input
+                className="field mt-1"
+                type="password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+              />
             </label>
             <label>
               <span className="label">Yeni şifre</span>
-              <input className="field mt-1" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+              <input
+                className="field mt-1"
+                type="password"
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+              />
             </label>
           </div>
-          <button className="btn btn-primary w-fit" type="submit" disabled={busy === "profile"}>
-            {busy === "profile" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+          <button
+            className="btn btn-primary w-fit"
+            type="submit"
+            disabled={busy === "profile"}
+          >
+            {busy === "profile" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ShieldCheck className="h-4 w-4" />
+            )}
             Profili güncelle
           </button>
         </form>
@@ -1074,7 +1453,19 @@ function ProfileWorkspace({ busy, onSubmit, session }) {
   );
 }
 
-function AdminWorkspace({ adminActivities, adminDocuments, adminExams, busy, health, onCreateUser, onDeleteUser, onRefresh, ready, session, users }) {
+function AdminWorkspace({
+  adminActivities,
+  adminDocuments,
+  adminExams,
+  busy,
+  health,
+  onCreateUser,
+  onDeleteUser,
+  onRefresh,
+  ready,
+  session,
+  users,
+}) {
   const [activeTab, setActiveTab] = useState("documents");
   const tabs = [
     { id: "users", label: "Kullanıcılar", count: users.length },
@@ -1088,44 +1479,95 @@ function AdminWorkspace({ adminActivities, adminDocuments, adminExams, busy, hea
       <section className="app-hero">
         <div>
           <p className="label">Admin panel</p>
-          <h3 className="mt-2 text-3xl font-black text-ink">Kayıtlar ve teknik izleme</h3>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">Teknik metadata, event akışı, API durumu ve kayıt ayrıntıları bu alanda toplanır.</p>
+          <h3 className="mt-2 text-3xl font-black text-ink">
+            Kayıtlar ve teknik izleme
+          </h3>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
+            Teknik metadata, event akışı, API durumu ve kayıt ayrıntıları bu
+            alanda toplanır.
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge tone={health?.status}>API {displayStatus(health?.status || "pending")}</Badge>
-          <Badge tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status}>MongoDB {displayStatus(ready?.databaseStatus || "unknown")}</Badge>
+          <Badge tone={health?.status}>
+            API {displayStatus(health?.status || "pending")}
+          </Badge>
+          <Badge
+            tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status}
+          >
+            MongoDB {displayStatus(ready?.databaseStatus || "unknown")}
+          </Badge>
         </div>
       </section>
 
       <section className="panel p-5">
         <div className="mb-5 flex flex-wrap gap-2">
           {tabs.map((tab) => (
-            <button className={`btn ${activeTab === tab.id ? "btn-primary" : "btn-secondary"}`} key={tab.id} type="button" onClick={() => setActiveTab(tab.id)}>
+            <button
+              className={`btn ${activeTab === tab.id ? "btn-primary" : "btn-secondary"}`}
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+            >
               {tab.label}
-              <span className="rounded-md bg-black/25 px-2 py-0.5 text-xs">{tab.count}</span>
+              <span className="rounded-md bg-black/25 px-2 py-0.5 text-xs">
+                {tab.count}
+              </span>
             </button>
           ))}
         </div>
 
         <div className="mb-5 flex justify-end">
-          <button className="btn btn-secondary" type="button" onClick={onRefresh} disabled={busy === "admin-data"}>
-            {busy === "admin-data" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={onRefresh}
+            disabled={busy === "admin-data"}
+          >
+            {busy === "admin-data" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
             Admin verilerini yenile
           </button>
         </div>
 
         {activeTab === "users" ? (
-          <AdminUsersPanel busy={busy} currentUserId={session.user?.id} onCreateUser={onCreateUser} onDeleteUser={onDeleteUser} onRefreshUsers={onRefresh} users={users} />
+          <AdminUsersPanel
+            busy={busy}
+            currentUserId={session.user?.id}
+            onCreateUser={onCreateUser}
+            onDeleteUser={onDeleteUser}
+            onRefreshUsers={onRefresh}
+            users={users}
+          />
         ) : null}
-        {activeTab === "documents" ? <AdminRecordList records={adminDocuments} type="document" users={users} /> : null}
-        {activeTab === "exams" ? <AdminRecordList records={adminExams} type="exam" users={users} /> : null}
-        {activeTab === "activity" ? <AdminActivityList activities={adminActivities} users={users} /> : null}
+        {activeTab === "documents" ? (
+          <AdminRecordList
+            records={adminDocuments}
+            type="document"
+            users={users}
+          />
+        ) : null}
+        {activeTab === "exams" ? (
+          <AdminRecordList records={adminExams} type="exam" users={users} />
+        ) : null}
+        {activeTab === "activity" ? (
+          <AdminActivityList activities={adminActivities} users={users} />
+        ) : null}
       </section>
     </div>
   );
 }
 
-function AdminUsersPanel({ busy, currentUserId, onCreateUser, onDeleteUser, onRefreshUsers, users }) {
+function AdminUsersPanel({
+  busy,
+  currentUserId,
+  onCreateUser,
+  onDeleteUser,
+  onRefreshUsers,
+  users,
+}) {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -1151,8 +1593,17 @@ function AdminUsersPanel({ busy, currentUserId, onCreateUser, onDeleteUser, onRe
             <p className="label">Kullanıcı yönetimi</p>
             <h3 className="section-title">Yeni kullanıcı</h3>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={onRefreshUsers} disabled={busy === "admin-data"}>
-            {busy === "admin-data" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={onRefreshUsers}
+            disabled={busy === "admin-data"}
+          >
+            {busy === "admin-data" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
             Yenile
           </button>
         </div>
@@ -1160,18 +1611,44 @@ function AdminUsersPanel({ busy, currentUserId, onCreateUser, onDeleteUser, onRe
         <form className="grid gap-3" onSubmit={submit}>
           <label>
             <span className="label">Email</span>
-            <input className="field mt-1" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+            <input
+              className="field mt-1"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
           </label>
           <label>
             <span className="label">Görünen ad</span>
-            <input className="field mt-1" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required />
+            <input
+              className="field mt-1"
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              required
+            />
           </label>
           <label>
             <span className="label">Geçici şifre</span>
-            <input className="field mt-1" type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} required />
+            <input
+              className="field mt-1"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              minLength={8}
+              required
+            />
           </label>
-          <button className="btn btn-primary" type="submit" disabled={busy === "admin-create-user"}>
-            {busy === "admin-create-user" ? <Loader2 className="h-4 w-4 animate-spin" /> : <User className="h-4 w-4" />}
+          <button
+            className="btn btn-primary"
+            type="submit"
+            disabled={busy === "admin-create-user"}
+          >
+            {busy === "admin-create-user" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <User className="h-4 w-4" />
+            )}
             Kullanıcı ekle
           </button>
         </form>
@@ -1180,22 +1657,41 @@ function AdminUsersPanel({ busy, currentUserId, onCreateUser, onDeleteUser, onRe
       <section className="grid content-start gap-3">
         {users.length ? (
           users.map((user) => (
-            <article className="rounded-lg border border-space-line bg-black/25 p-4" key={user.id || user.email}>
+            <article
+              className="rounded-lg border border-space-line bg-black/25 p-4"
+              key={user.id || user.email}
+            >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="font-black text-ink">{user.displayName || user.email}</p>
-                  <p className="mt-1 break-all text-xs text-muted">{user.email}</p>
+                  <p className="font-black text-ink">
+                    {user.displayName || user.email}
+                  </p>
+                  <p className="mt-1 break-all text-xs text-muted">
+                    {user.email}
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Badge tone={user.role === "admin" ? "ready" : "idle"}>{user.role || "user"}</Badge>
-                  <Badge tone={user.status}>{displayStatus(user.status || "active")}</Badge>
+                  <Badge tone={user.role === "admin" ? "ready" : "idle"}>
+                    {user.role || "user"}
+                  </Badge>
+                  <Badge tone={user.status}>
+                    {displayStatus(user.status || "active")}
+                  </Badge>
                   <button
                     className="btn btn-secondary"
                     type="button"
                     onClick={() => onDeleteUser(user.id)}
-                    disabled={!user.id || user.id === currentUserId || busy === `admin-delete-user-${user.id}`}
+                    disabled={
+                      !user.id ||
+                      user.id === currentUserId ||
+                      busy === `admin-delete-user-${user.id}`
+                    }
                   >
-                    {busy === `admin-delete-user-${user.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    {busy === `admin-delete-user-${user.id}` ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
                     Sil
                   </button>
                 </div>
@@ -1203,7 +1699,9 @@ function AdminUsersPanel({ busy, currentUserId, onCreateUser, onDeleteUser, onRe
             </article>
           ))
         ) : (
-          <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">Kullanıcı kaydı bulunamadı.</p>
+          <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">
+            Kullanıcı kaydı bulunamadı.
+          </p>
         )}
       </section>
     </div>
@@ -1212,23 +1710,49 @@ function AdminUsersPanel({ busy, currentUserId, onCreateUser, onDeleteUser, onRe
 
 function AdminRecordList({ records, type, users }) {
   if (!records.length) {
-    return <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">Henüz kayıt yok.</p>;
+    return (
+      <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">
+        Henüz kayıt yok.
+      </p>
+    );
   }
 
   return (
     <div className="grid gap-3">
       {records.map((record) => (
-        <article className="rounded-lg border border-space-line bg-black/25 p-4" key={record.id || record.examId || `${record.documentId}-${record.createdAt}`}>
+        <article
+          className="rounded-lg border border-space-line bg-black/25 p-4"
+          key={
+            record.id ||
+            record.examId ||
+            `${record.documentId}-${record.createdAt}`
+          }
+        >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="label">{type === "document" ? "Doküman kaydı" : "Sınav kaydı"}</p>
-              <h4 className="mt-1 break-words text-base font-black text-ink">{record.title || record.fileName || record.documentId || record.examId}</h4>
-              <p className="mt-1 break-all text-xs text-muted">{record.documentId || record.examId || record.id}</p>
-              <p className="mt-2 text-xs text-muted">Kullanıcı: {userLabelForId(users, record.userId)}</p>
+              <p className="label">
+                {type === "document" ? "Doküman kaydı" : "Sınav kaydı"}
+              </p>
+              <h4 className="mt-1 break-words text-base font-black text-ink">
+                {record.title ||
+                  record.fileName ||
+                  record.documentId ||
+                  record.examId}
+              </h4>
+              <p className="mt-1 break-all text-xs text-muted">
+                {record.documentId || record.examId || record.id}
+              </p>
+              <p className="mt-2 text-xs text-muted">
+                Kullanıcı: {userLabelForId(users, record.userId)}
+              </p>
             </div>
-            <Badge tone={record.status}>{displayStatus(record.status || "recorded")}</Badge>
+            <Badge tone={record.status}>
+              {displayStatus(record.status || "recorded")}
+            </Badge>
           </div>
-          <pre className="mt-4 max-h-52 overflow-auto rounded-lg border border-space-line bg-black/35 p-3 text-xs leading-5 text-muted">{JSON.stringify(record, null, 2)}</pre>
+          <pre className="mt-4 max-h-52 overflow-auto rounded-lg border border-space-line bg-black/35 p-3 text-xs leading-5 text-muted">
+            {JSON.stringify(record, null, 2)}
+          </pre>
         </article>
       ))}
     </div>
@@ -1237,17 +1761,30 @@ function AdminRecordList({ records, type, users }) {
 
 function AdminActivityList({ activities, users }) {
   const [selectedUserId, setSelectedUserId] = useState("all");
-  const filteredActivities = selectedUserId === "all" ? activities : activities.filter((event) => String(event.userId || "") === selectedUserId);
+  const filteredActivities =
+    selectedUserId === "all"
+      ? activities
+      : activities.filter(
+          (event) => String(event.userId || "") === selectedUserId,
+        );
 
   if (!activities.length) {
-    return <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">Henüz işlem kaydı yok.</p>;
+    return (
+      <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">
+        Henüz işlem kaydı yok.
+      </p>
+    );
   }
 
   return (
     <div className="grid gap-3">
       <label className="max-w-sm">
         <span className="label">Kullanıcı filtresi</span>
-        <select className="field mt-1" value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)}>
+        <select
+          className="field mt-1"
+          value={selectedUserId}
+          onChange={(event) => setSelectedUserId(event.target.value)}
+        >
           <option value="all">Tüm kullanıcılar</option>
           {users.map((user) => (
             <option key={user.id || user.email} value={user.id}>
@@ -1258,18 +1795,39 @@ function AdminActivityList({ activities, users }) {
       </label>
 
       {sortRecordsByDate(filteredActivities).map((event) => (
-        <article className="rounded-lg border border-space-line bg-black/25 p-4" key={event.id || `${event.eventId}-${event.eventType}-${event.createdAt}`}>
+        <article
+          className="rounded-lg border border-space-line bg-black/25 p-4"
+          key={
+            event.id || `${event.eventId}-${event.eventType}-${event.createdAt}`
+          }
+        >
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-bold text-ink">{event.eventType || "activity.event"}</p>
-            <Badge tone={event.status}>{displayStatus(event.status || "recorded")}</Badge>
+            <p className="font-bold text-ink">
+              {event.eventType || "activity.event"}
+            </p>
+            <Badge tone={event.status}>
+              {displayStatus(event.status || "recorded")}
+            </Badge>
           </div>
-          <p className="mt-2 text-xs text-muted">Kullanıcı: {userLabelForId(users, event.userId)}</p>
-          <p className="mt-2 break-all text-xs text-muted">documentId: {event.documentId || "-"}</p>
-          <p className="mt-2 text-sm leading-6 text-muted">{event.message || readableActivityMessage(event)}</p>
-          <pre className="mt-4 max-h-44 overflow-auto rounded-lg border border-space-line bg-black/35 p-3 text-xs leading-5 text-muted">{JSON.stringify(event, null, 2)}</pre>
+          <p className="mt-2 text-xs text-muted">
+            Kullanıcı: {userLabelForId(users, event.userId)}
+          </p>
+          <p className="mt-2 break-all text-xs text-muted">
+            documentId: {event.documentId || "-"}
+          </p>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            {event.message || readableActivityMessage(event)}
+          </p>
+          <pre className="mt-4 max-h-44 overflow-auto rounded-lg border border-space-line bg-black/35 p-3 text-xs leading-5 text-muted">
+            {JSON.stringify(event, null, 2)}
+          </pre>
         </article>
       ))}
-      {!filteredActivities.length ? <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">Bu kullanıcı için işlem kaydı yok.</p> : null}
+      {!filteredActivities.length ? (
+        <p className="rounded-lg border border-dashed border-space-line bg-black/20 p-5 text-sm text-muted">
+          Bu kullanıcı için işlem kaydı yok.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -1282,7 +1840,9 @@ function userLabelForId(users, userId) {
 }
 
 function isFailedExamRecord(exam) {
-  const status = String(exam?.status || exam?.validationResult || "").toLowerCase();
+  const status = String(
+    exam?.status || exam?.validationResult || "",
+  ).toLowerCase();
   return ["failed", "invalid", "error"].includes(status);
 }
 
@@ -1296,24 +1856,35 @@ function resolveActivityDisplayStatus(event, terminalStatusByDocument) {
   return event.status;
 }
 
-function resolveActivityDisplayMessage(event, displayStatusValue, terminalStatusByDocument) {
+function resolveActivityDisplayMessage(
+  event,
+  displayStatusValue,
+  terminalStatusByDocument,
+) {
   const status = String(event.status || "").toLowerCase();
-  const terminal = event.documentId ? terminalStatusByDocument.get(event.documentId) : "";
+  const terminal = event.documentId
+    ? terminalStatusByDocument.get(event.documentId)
+    : "";
   if (status === "processing" && terminal === "validated") {
     return "Bu adım sonraki event ile tamamlandı.";
   }
   if (status === "processing" && terminal === "failed") {
     return "Bu adım sonrasında akış hata durumuna geçti.";
   }
-  return event.message || readableActivityMessage({ ...event, status: displayStatusValue });
+  return (
+    event.message ||
+    readableActivityMessage({ ...event, status: displayStatusValue })
+  );
 }
 
 function readableActivityMessage(event) {
   if (event.status === "received") return "Doküman backend tarafından alındı.";
   if (event.status === "published") return "Event Pub/Sub hattına yayınlandı.";
-  if (event.status === "processing") return "Arka plan servisi işlemi sürdürüyor.";
+  if (event.status === "processing")
+    return "Arka plan servisi işlemi sürdürüyor.";
   if (event.status === "processed") return "Doküman işleme adımı tamamlandı.";
-  if (event.status === "validated") return "Doğrulama ve sınav kaydı tamamlandı.";
+  if (event.status === "validated")
+    return "Doğrulama ve sınav kaydı tamamlandı.";
   if (event.status === "failed") return "İşlem sırasında hata oluştu.";
   return "Activity kaydı oluşturuldu.";
 }
@@ -1324,6 +1895,8 @@ function readableActivityError(event) {
 
 function isAdminSession(session) {
   const role = String(session?.user?.role || "").toLowerCase();
-  const email = String(session?.user?.email || session?.email || "").toLowerCase();
+  const email = String(
+    session?.user?.email || session?.email || "",
+  ).toLowerCase();
   return role === "admin" || email === "admin@examflow.com";
 }

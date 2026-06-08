@@ -16,6 +16,9 @@ import { LoginPage, ProductApp } from "./features/app/ProductApp";
 import { DemoDashboard } from "./features/demo/DemoDashboard";
 import { readStoredSession } from "./utils/session";
 
+const heroLogoSrc = "/assets/logo.png";
+const markLogoSrc = "/assets/logo2.png";
+
 function App() {
   usePageTitle();
 
@@ -107,7 +110,7 @@ function HomePage() {
     <main className="home-shell">
       <header className="home-nav">
         <Link className="flex items-center gap-3" to="/">
-          <div className="brand-mark">E</div>
+          <img className="brand-logo" src={markLogoSrc} alt="ExamFlow logo" />
           <div>
             <p className="label">ExamFlow</p>
             <h1 className="text-lg font-black text-ink">
@@ -170,23 +173,29 @@ function HomePage() {
           </div>
         </div>
 
-        <aside className="home-flow" aria-label="ExamFlow sınav hazırlama akışı">
-          <div className="mb-4">
-            <p className="label">Süreç</p>
-            <h3 className="mt-1 text-xl font-black text-ink">
-              Sınav hazırlama adımları
-            </h3>
+        <aside className="grid gap-4" aria-label="ExamFlow sınav hazırlama akışı">
+          <div className="home-logo-panel">
+            <img src={heroLogoSrc} alt="ExamFlow logo" />
           </div>
 
-          {flowSteps.map((item, index) => (
-            <div key={item} className="home-flow-row">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-neon-cyan/40 bg-neon-cyan/10 text-sm font-black text-neon-cyan">
-                {index + 1}
-              </span>
-              <span className="truncate text-sm font-bold text-ink">{item}</span>
-              <ClipboardList className="ml-auto h-4 w-4 text-muted" />
+          <div className="home-flow">
+            <div className="mb-4">
+              <p className="label">Süreç</p>
+              <h3 className="mt-1 text-xl font-black text-ink">
+                Sınav hazırlama adımları
+              </h3>
             </div>
-          ))}
+
+            {flowSteps.map((item, index) => (
+              <div key={item} className="home-flow-row">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-neon-cyan/40 bg-neon-cyan/10 text-sm font-black text-neon-cyan">
+                  {index + 1}
+                </span>
+                <span className="truncate text-sm font-bold text-ink">{item}</span>
+                <ClipboardList className="ml-auto h-4 w-4 text-muted" />
+              </div>
+            ))}
+          </div>
 
         </aside>
       </section>

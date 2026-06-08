@@ -18,7 +18,7 @@ export function ExamFilters({
   validationOptions,
 }) {
   return (
-    <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_180px_180px_180px_180px]">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[minmax(260px,1fr)_180px_180px_180px_180px]">
       <label className="block">
         <span className="label">Başlık, documentId veya durum ara</span>
         <div className="relative mt-1">

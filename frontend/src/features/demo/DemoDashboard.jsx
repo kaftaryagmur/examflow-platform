@@ -127,11 +127,12 @@ export function DemoDashboard() {
     setBusy("session");
     setError("");
     setNotice("");
-    const email = session?.token ? `demo-${Date.now()}@examflow.local` : session?.email || `demo-${Date.now()}@examflow.local`;
+    const email = session?.token || !session?.email ? `demo-${Date.now()}@examflow.local` : session.email;
+    const shouldRegister = !session?.email || email !== session.email;
     const displayName = "Demo User";
 
     try {
-      if (!session?.email) {
+      if (shouldRegister) {
         try {
           await request("/auth/register", {
             method: "POST",

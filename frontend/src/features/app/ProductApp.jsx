@@ -24,6 +24,7 @@ import {
 
 import { ArchiveList } from "../../components/archive";
 import { Alert, Badge } from "../../components/status";
+import { TagFolderPanel } from "../../components/tagFolders";
 import {
   appNav,
   defaultBaseUrl,
@@ -865,6 +866,7 @@ function AppOverview({
   const recentExams = sortRecordsByDate(exams);
   const latestDocument = recentDocuments[0];
   const latestExam = recentExams[0];
+  const tagFolders = useMemo(() => buildCombinedTagFolders(documents, exams), [documents, exams]);
   const lastStatus =
     lastProcess?.status ||
     latestExam?.status ||
@@ -936,6 +938,8 @@ function AppOverview({
           notice={processNotice}
         />
       </div>
+
+      <TagFolderPanel folders={tagFolders} title="Etiket klasorleri" />
 
       <div className="grid gap-5 xl:grid-cols-2">
         <WorkspaceRecords
@@ -1110,6 +1114,7 @@ function DashboardResultPanel({
           fallback="Henüz doküman sonucu yok."
           icon={FileText}
           label="Doküman kaydı"
+          linkTo={documentRecord ? `/app/documents/${encodeURIComponent(documentRecord.documentId || documentRecord.id || "")}` : ""}
           record={documentRecord}
           title={documentRecord?.fileName || lastProcess?.fileName}
         />
@@ -1117,6 +1122,7 @@ function DashboardResultPanel({
           fallback="Henüz sınav sonucu yok."
           icon={ClipboardList}
           label="Sınav kaydı"
+          linkTo={examRecord ? `/app/exams/${encodeURIComponent(examRecord.id || examRecord.examId || examRecord.documentId || "")}` : ""}
           record={examRecord}
           title={examRecord?.title || "Oluşturulan sınav"}
         />
@@ -1125,9 +1131,12 @@ function DashboardResultPanel({
   );
 }
 
-function ResultRecordCard({ fallback, icon: Icon, label, record, title }) {
+function ResultRecordCard({ fallback, icon: Icon, label, linkTo, record, title }) {
   return (
-    <article className="rounded-lg border border-space-line bg-black/25 p-4">
+    <Link
+      className={`block rounded-lg border border-space-line bg-black/25 p-4 ${record && linkTo ? "transition hover:border-neon-cyan/50 hover:bg-neon-cyan/5" : "pointer-events-none"}`}
+      to={record && linkTo ? linkTo : "#"}
+    >
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="label">{label}</p>
@@ -1157,7 +1166,7 @@ function ResultRecordCard({ fallback, icon: Icon, label, record, title }) {
           Yeni bir doküman gönderdiğinde sonuçlar burada görünecek.
         </p>
       )}
-    </article>
+    </Link>
   );
 }
 
@@ -1870,6 +1879,34 @@ function isFailedExamRecord(exam) {
     exam?.status || exam?.validationResult || "",
   ).toLowerCase();
   return ["failed", "invalid", "error"].includes(status);
+}
+
+function buildCombinedTagFolders(documents, exams) {
+  const folders = new Map();
+  documents.forEach((document) => {
+    (Array.isArray(document.tags) ? document.tags : []).forEach((tag) => {
+      const folder = folders.get(tag) || { documentCount: 0, examCount: 0, tag };
+      folder.documentCount += 1;
+      folders.set(tag, folder);
+    });
+  });
+  exams.forEach((exam) => {
+    (Array.isArray(exam.tags) ? exam.tags : []).forEach((tag) => {
+      const folder = folders.get(tag) || { documentCount: 0, examCount: 0, tag };
+      folder.examCount += 1;
+      folders.set(tag, folder);
+    });
+  });
+
+  return Array.from(folders.values())
+    .map((folder) => ({
+      detail: `${folder.documentCount} dokuman · ${folder.examCount} sinav`,
+      documentTo: `/app/documents?tag=${encodeURIComponent(folder.tag)}`,
+      examTo: `/app/exams?tag=${encodeURIComponent(folder.tag)}`,
+      tag: folder.tag,
+      total: folder.documentCount + folder.examCount,
+    }))
+    .sort((a, b) => b.total - a.total || a.tag.localeCompare(b.tag));
 }
 
 function resolveActivityDisplayStatus(event, terminalStatusByDocument) {

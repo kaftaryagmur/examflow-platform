@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -337,6 +338,7 @@ func enrichExamWithGeneratedContent(exam *Exam, event validatedEvent) {
 			logKV("warn", "exam-service", "document metadata lookup failed for generation", "document_id", event.DocumentID, "error", err.Error())
 		} else {
 			input.FileName = doc.FileName
+			exam.Title = buildExamTitle(doc.FileName, event.DocumentID)
 			input.Source = doc.Source
 			input.ContentType = doc.ContentType
 			input.Prefs = doc.GenerationPrefs
@@ -434,6 +436,7 @@ func buildExam(event validatedEvent) (Exam, error) {
 	exam := Exam{
 		ID:               bson.NewObjectID(),
 		DocumentID:       event.DocumentID,
+		Title:            buildExamTitle("", event.DocumentID),
 		ValidationResult: event.ValidationResult,
 		Status:           status,
 		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
@@ -447,6 +450,20 @@ func buildExam(event validatedEvent) (Exam, error) {
 	}
 
 	return exam, nil
+}
+
+func buildExamTitle(fileName string, documentID string) string {
+	base := strings.TrimSpace(fileName)
+	if base != "" {
+		base = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+	if base == "" {
+		base = strings.TrimSpace(documentID)
+	}
+	if base == "" {
+		return "Olusturulan sinav"
+	}
+	return base + " sinavi"
 }
 
 func loadMongoDBConfig() (mongoDBConfig, bool) {

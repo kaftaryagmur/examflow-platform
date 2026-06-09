@@ -42,6 +42,7 @@
     margin: 0;
     min-width: 320px;
     min-height: 100vh;
+    overflow-x: hidden;
     color: #f8fafc;
     background:
       linear-gradient(120deg, rgba(139, 92, 246, 0.18), transparent 26%),
@@ -58,6 +59,13 @@
   input {
     font: inherit;
   }
+
+  html,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
 }
 
 @layer components {
@@ -66,7 +74,7 @@
   }
 
   .btn {
-    @apply inline-flex h-10 items-center justify-center gap-2 rounded-md border border-transparent px-4 text-sm font-semibold transition;
+    @apply inline-flex min-h-10 max-w-full items-center justify-center gap-2 rounded-md border border-transparent px-4 py-2 text-center text-sm font-semibold leading-tight transition;
   }
 
   .btn-primary {
@@ -243,11 +251,11 @@
   }
 
   .app-topbar-actions {
-    @apply flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-stretch lg:w-auto;
+    @apply flex w-full min-w-0 flex-col gap-3 md:flex-row md:items-stretch lg:w-auto;
   }
 
   .app-user-card {
-    @apply flex w-full min-w-0 flex-col gap-3 rounded-lg border border-space-line bg-black/25 px-3 py-3 sm:flex-row sm:items-center sm:px-4 lg:min-w-[320px] lg:w-auto;
+    @apply flex w-full min-w-0 flex-col gap-3 rounded-lg border border-space-line bg-black/25 px-3 py-3 md:flex-row md:items-center md:px-4 lg:min-w-[320px] lg:w-auto;
   }
 
   .app-nav-item {

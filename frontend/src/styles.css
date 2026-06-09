@@ -66,6 +66,19 @@
     max-width: 100%;
     overflow-x: hidden;
   }
+
+  /*
+   * Implicit single-column grids default their track to `auto`, which grows to
+   * max-content and pushes long / unbreakable content (file names, ids, JSON)
+   * past the viewport on mobile (the overflow is then clipped by overflow-x:hidden,
+   * so content is silently cut off). Constraining the implicit track to
+   * minmax(0, 1fr) keeps single-column grids within their container so text wraps
+   * and scroll containers (pre, overflow-auto) scroll instead of overflowing.
+   * Only affects implicit tracks; explicit grid-cols-* templates are untouched.
+   */
+  .grid {
+    grid-auto-columns: minmax(0, 1fr);
+  }
 }
 
 @layer components {

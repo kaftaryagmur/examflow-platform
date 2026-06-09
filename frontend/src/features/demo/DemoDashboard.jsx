@@ -127,6 +127,8 @@ export function DemoDashboard() {
     setBusy("session");
     setError("");
     setNotice("");
+    document.documentElement.scrollLeft = 0;
+    document.body.scrollLeft = 0;
     const email = session?.token || !session?.email ? `demo-${Date.now()}@examflow.local` : session.email;
     const shouldRegister = !session?.email || email !== session.email;
     const displayName = "Demo User";
@@ -154,6 +156,8 @@ export function DemoDashboard() {
       const nextSession = { email, token: login.token, user: login.user };
       setSession(nextSession);
       window.localStorage.setItem(sessionKey, JSON.stringify(nextSession));
+      document.documentElement.scrollLeft = 0;
+      document.body.scrollLeft = 0;
       setLastResponse({ action: "auth/login", body: login });
       await refreshArchive(nextSession.token);
       return nextSession;
@@ -326,7 +330,7 @@ export function DemoDashboard() {
   }, []);
 
   return (
-    <main className="min-h-screen overflow-hidden">
+    <main className="min-h-screen overflow-x-hidden">
       <header className="border-b border-space-line bg-black/30 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1500px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
@@ -339,12 +343,12 @@ export function DemoDashboard() {
               <Badge tone={health?.status || "idle"}>{health?.mode ? `GKE modu: ${displayStatus(health.mode)}` : "GKE bağlantısı"}</Badge>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Link className="btn btn-primary" to={appTarget}>
+            <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap">
+              <Link className="btn btn-primary w-full xl:w-auto" to={appTarget}>
                 <ArrowLeft className="h-4 w-4 rotate-180" />
                 Uygulamaya git
               </Link>
-              <button className="btn btn-secondary" type="button" onClick={refreshStatus} disabled={busy === "status"}>
+              <button className="btn btn-secondary w-full xl:w-auto" type="button" onClick={refreshStatus} disabled={busy === "status"}>
                 {busy === "status" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                 Durumu yenile
               </button>
@@ -352,7 +356,7 @@ export function DemoDashboard() {
           </div>
 
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <nav className="flex flex-wrap gap-2" aria-label="Demo ekranı menüsü">
+            <nav className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:flex xl:w-auto xl:flex-wrap" aria-label="Demo ekranı menüsü">
               {demoViews.map((view) => {
                 const Icon = view.icon;
                 const active = activeView === view.id;
@@ -372,7 +376,7 @@ export function DemoDashboard() {
                 );
               })}
             </nav>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap">
               <StatusPill icon={ShieldCheck} label="JWT" value={session?.token ? "Oturum açık" : "Oturum yok"} tone={session?.token ? "ok" : "idle"} />
               <StatusPill icon={Database} label="MongoDB" value={displayStatus(ready?.databaseStatus)} tone={ready?.databaseStatus === "ready" ? "ok" : ready?.status} />
               <StatusPill icon={Activity} label="/health" value={displayStatus(health?.status || "pending")} tone={health?.status} />
@@ -470,8 +474,8 @@ function Dashboard({
   timeline,
 }) {
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(260px,0.8fr)_minmax(420px,1.3fr)_minmax(300px,0.9fr)]">
-      <section className="panel glass-grid p-5">
+    <div className="grid w-full max-w-full gap-5 2xl:grid-cols-[minmax(260px,0.8fr)_minmax(420px,1.3fr)_minmax(300px,0.9fr)]">
+      <section className="panel glass-grid min-w-0 max-w-full overflow-hidden p-5">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <p className="label">Girdi</p>
@@ -481,10 +485,10 @@ function Dashboard({
         </div>
 
         <form onSubmit={onSubmit}>
-          <label className="block rounded-lg border border-dashed border-cyber-purple/50 bg-black/25 p-5 text-center transition hover:border-neon-cyan/70">
+          <label className="block min-w-0 max-w-full rounded-lg border border-dashed border-cyber-purple/50 bg-black/25 p-5 text-center transition hover:border-neon-cyan/70">
             <FileUp className="mx-auto h-12 w-12 text-cyber-purple" />
-            <span className="mt-4 block truncate text-sm font-semibold text-ink">{selectedFile?.name || "PDF veya DOCX dosyasi sec"}</span>
-            <span className="mt-1 block text-xs text-muted">documentId: {demoDocumentId}</span>
+            <span className="mt-4 block break-words text-sm font-semibold text-ink">{selectedFile?.name || "PDF veya DOCX dosyasi sec"}</span>
+            <span className="mt-1 block break-all text-xs text-muted">documentId: {demoDocumentId}</span>
             <input className="sr-only" type="file" accept=".pdf,.docx" onChange={(event) => setSelectedFile(event.target.files?.[0] || null)} />
           </label>
 
@@ -493,12 +497,12 @@ function Dashboard({
             <input className="field mt-1" value={source} onChange={(event) => setSource(event.target.value)} />
           </label>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-            <button className="btn btn-primary" type="button" onClick={onStart} disabled={busy === "session"}>
+          <div className="mt-5 grid grid-cols-1 gap-3 2xl:grid-cols-2">
+            <button className="btn btn-primary w-full" type="button" onClick={onStart} disabled={busy === "session"}>
               {busy === "session" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               Oturum başlat
             </button>
-            <button className="btn btn-secondary" type="button" onClick={onReset}>
+            <button className="btn btn-secondary w-full" type="button" onClick={onReset}>
               <RotateCcw className="h-4 w-4" />
               Sıfırla
             </button>

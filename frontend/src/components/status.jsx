@@ -8,10 +8,10 @@ export function Badge({ children, tone = "idle" }) {
 
 export function StatusPill({ icon: Icon, label, value, tone }) {
   return (
-    <div className={`flex h-9 items-center gap-2 rounded-md border px-3 ${toneClass(tone)}`}>
-      <Icon className="h-4 w-4" />
-      <span className="text-xs font-semibold">{label}</span>
-      <span className="text-xs">{value}</span>
+    <div className={`flex min-h-9 max-w-full min-w-0 items-center gap-2 rounded-md border px-3 py-2 ${toneClass(tone)}`}>
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="shrink-0 text-xs font-semibold">{label}</span>
+      <span className="min-w-0 truncate text-xs">{value}</span>
     </div>
   );
 }

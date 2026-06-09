@@ -561,6 +561,9 @@ export function ProductApp() {
 
   useEffect(() => {
     setSidebarOpen(false);
+    document.documentElement.scrollLeft = 0;
+    document.body.scrollLeft = 0;
+    window.scrollTo(0, 0);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -662,13 +665,13 @@ export function ProductApp() {
             >
               <Menu className="h-5 w-5" />
             </button>
-            <h2 className="min-w-0 text-xl font-black leading-tight text-ink sm:text-2xl">
+            <h2 className="min-w-0 text-lg font-black leading-tight text-ink sm:text-xl lg:text-2xl">
               ExamFlow Kullanıcı Paneli
             </h2>
           </div>
           <div className="app-topbar-actions">
             <button
-              className="btn btn-secondary w-full sm:w-auto"
+              className="btn btn-secondary w-full md:w-auto"
               type="button"
               onClick={() => loadArchive()}
               disabled={busy === "archive"}
@@ -688,7 +691,7 @@ export function ProductApp() {
                 </p>
               </div>
               <button
-                className="btn btn-secondary w-full sm:ml-auto sm:w-auto"
+                className="btn btn-secondary w-full md:ml-auto md:w-auto"
                 type="button"
                 onClick={() => navigate("/app/profile")}
               >
@@ -696,7 +699,7 @@ export function ProductApp() {
                 Profil
               </button>
               <button
-                className="btn btn-secondary w-full sm:w-auto"
+                className="btn btn-secondary w-full md:w-auto"
                 type="button"
                 onClick={logout}
               >
@@ -947,13 +950,13 @@ function AppOverview({
 
   return (
     <div className="grid gap-5">
-      <section className="app-hero">
-        <div>
+      <section className="app-hero overflow-hidden">
+        <div className="min-w-0">
           <p className="label">Genel bakış</p>
-          <h3 className="mt-2 text-3xl font-black text-ink">
+          <h3 className="mt-2 break-words text-2xl font-black leading-tight text-ink sm:text-3xl">
             Doküman yükle, sınavını oluştur, sonucu aynı ekranda izle.
           </h3>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
+          <p className="mt-3 max-w-2xl break-words text-sm leading-6 text-muted">
             Ders notlarını yükleyerek sınav soruları ve çalışma kartları
             oluşturabilirsin. Geçmiş doküman ve sınavlarına arşivden
             ulaşabilirsin.
@@ -961,7 +964,7 @@ function AppOverview({
         </div>
       </section>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <InsightCard
           icon={FileText}
           title="Toplam doküman"

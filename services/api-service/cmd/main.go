@@ -22,6 +22,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
 )
 
 func init() {
@@ -162,6 +164,14 @@ func main() {
 	}
 
 	ctx := context.Background()
+
+	shutdownTracing, err := initTracing(ctx, "api-service")
+	if err != nil {
+		logKV("warn", "api-service", "tracing init failed", "error", err.Error())
+	} else {
+		defer func() { _ = shutdownTracing(context.Background()) }()
+	}
+
 	mode := "mock"
 
 	var pub publisher
@@ -216,8 +226,19 @@ func main() {
 
 	handler := newServer(ctx, pub, mode, db, users, documents, exams, auth, authConfigured, files)
 
+	// HTTP sunucusunu otelhttp ile sar: her istek bir span olur. /health ve /ready
+	// (kubelet probe'ları) gürültü yapmasın diye filtrelenir; span adı "METOD /yol".
+	otelHandler := otelhttp.NewHandler(handler, "http.server",
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			return r.Method + " " + r.URL.Path
+		}),
+		otelhttp.WithFilter(func(r *http.Request) bool {
+			return r.URL.Path != "/health" && r.URL.Path != "/ready"
+		}),
+	)
+
 	logKV("info", "api-service", "listening", "port", port, "mode", mode)
-	if err := http.ListenAndServe(":"+port, handler); err != nil {
+	if err := http.ListenAndServe(":"+port, otelHandler); err != nil {
 		logKV("error", "api-service", "http server stopped", "error", err.Error())
 		os.Exit(1)
 	}
@@ -360,7 +381,11 @@ func newServer(ctx context.Context, pub publisher, mode string, db databaseClien
 		}
 
 		logKV("info", "api-service", "publishing event", "endpoint", "/publish", "event_id", event.EventID, "document_id", event.DocumentID, "event_type", event.EventType)
-		messageID, err := pub.Publish(ctx, &pubsub.Message{Data: payload}).Get(ctx)
+		msg := &pubsub.Message{Data: payload, Attributes: map[string]string{}}
+		// Trace context'i mesaj attribute'larına inject et: worker tarafında extract
+		// edilince zincir (api -> worker) tek trace olarak birleşir.
+		otel.GetTextMapPropagator().Inject(r.Context(), pubsubAttributesCarrier(msg.Attributes))
+		messageID, err := pub.Publish(r.Context(), msg).Get(r.Context())
 		if err != nil {
 			logKV("error", "api-service", "publish failed", "endpoint", "/publish", "event_id", event.EventID, "document_id", event.DocumentID, "error", err.Error())
 			recordPublishActivity(r.Context(), event, activityStatusFailed, "document.publish.failed", "Dokuman eventi Pub/Sub kuyruguna gonderilemedi.", err.Error())

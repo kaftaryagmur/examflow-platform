@@ -1,0 +1,24 @@
+# Grafana'ya Tempo datasource'unu otomatik ekler.
+# kube-prometheus-stack Grafana'sının "datasource sidecar"ı,
+# grafana_datasource=1 etiketli ConfigMap'leri observability namespace'inde
+# otomatik bulur ve Grafana'ya yükler. Yani helm upgrade gerekmez,
+# sadece kubectl apply yeterli; sidecar ~1 dk içinde alır.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-grafana-datasource
+  namespace: observability
+  labels:
+    grafana_datasource: "1"
+data:
+  tempo-datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://tempo.observability.svc.cluster.local:3200
+        isDefault: false
+        jsonData:
+          httpMethod: GET

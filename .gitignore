@@ -5,3 +5,6 @@ dist/
 build/
 .DS_Store
 *.log
+
+# Go derleme çıktıları (ör. "go build" sonrası oluşan cmd.exe)
+*.exe

@@ -27,6 +27,16 @@ prometheus:
 alertmanager:
   enabled: true
 
+# GKE Autopilot, kube-system namespace'ine yazmayı engeller (GKE Warden
+# managed-namespaces-limitation). Bu yüzden operator kubelet Service/Endpoints'ini
+# kube-system'de oluşturamaz ve kubelet target'ı hiç doğmaz; sonuç olarak
+# pod/container (Compute Resources) panelleri boş kalır. Çözüm: kubelet'i
+# observability namespace'inde topla. kubelet.namespace (ServiceMonitor'ın baktığı
+# yer) ile prometheusOperator.kubeletService.namespace (operator'ın yazdığı yer)
+# AYNI olmalı; aksi halde eşleşme olmaz.
+kubelet:
+  namespace: observability
+
 coreDns:
   enabled: false
 
@@ -50,3 +60,9 @@ nodeExporter:
 
 prometheus-node-exporter:
   enabled: false
+
+# kubelet.namespace ile eşleşmeli (üstteki nota bakın): operator kubelet
+# Service'ini observability'ye yazsın, kube-system'e değil.
+prometheusOperator:
+  kubeletService:
+    namespace: observability

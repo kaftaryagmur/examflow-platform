@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"cloud.google.com/go/pubsub"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 func init() {
@@ -71,6 +74,14 @@ func main() {
 	}
 
 	ctx := context.Background()
+
+	shutdownTracing, err := initTracing(ctx, "worker-service")
+	if err != nil {
+		logKV("warn", "worker-service", "tracing init failed", "error", err.Error())
+	} else {
+		defer func() { _ = shutdownTracing(context.Background()) }()
+	}
+
 	activityClient, activityCollection, err := connectActivityMongo(ctx)
 	if err != nil {
 		logKV("warn", "worker-service", "mongodb activity connection unavailable", "error", err.Error())
@@ -106,14 +117,29 @@ func main() {
 	logKV("info", "worker-service", "listening for messages", "subscription", subscriptionID)
 
 	err = sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+		// Gelen mesajdaki trace context'i çıkar: api-service inject ettiyse zincir
+		// birleşir, etmediyse bu yeni bir kök trace başlatır.
+		ctx = otel.GetTextMapPropagator().Extract(ctx, pubsubAttributesCarrier(msg.Attributes))
+		ctx, span := otel.Tracer("worker-service").Start(ctx, "process document event")
+		defer span.End()
+
 		logKV("info", "worker-service", "message received", "message_id", msg.ID, "payload", string(msg.Data))
 
 		event, err := parseEvent(msg.Data)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "message parse failed")
 			logKV("error", "worker-service", "message parse failed", "message_id", msg.ID, "error", err.Error())
 			msg.Ack()
 			return
 		}
+
+		span.SetAttributes(
+			attribute.String("messaging.message.id", msg.ID),
+			attribute.String("examflow.event_id", event.EventID),
+			attribute.String("examflow.document_id", event.DocumentID),
+			attribute.String("examflow.event_type", event.EventType),
+		)
 
 		if !shouldProcessEvent(event) {
 			logKV(
@@ -143,6 +169,8 @@ func main() {
 		recordWorkerActivity(ctx, event, activityStatusProcessed, "document.processed", "Worker Service dokumani isledi.", "")
 
 		if err := publishProcessedEvent(ctx, pub, result); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "processed event publish failed")
 			logKV(
 				"error", "worker-service", "processed event publish failed",
 				"event_id", result.EventID,

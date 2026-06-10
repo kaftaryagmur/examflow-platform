@@ -273,7 +273,11 @@ func publishProcessedEvent(ctx context.Context, pub publisher, result Processing
 		return err
 	}
 
-	messageID, err := pub.Publish(ctx, &pubsub.Message{Data: payload}).Get(ctx)
+	// Trace context'i mesaj attribute'larına inject et: validation-service extract
+	// edince zincir worker -> validation olarak devam eder.
+	msg := &pubsub.Message{Data: payload, Attributes: map[string]string{}}
+	otel.GetTextMapPropagator().Inject(ctx, pubsubAttributesCarrier(msg.Attributes))
+	messageID, err := pub.Publish(ctx, msg).Get(ctx)
 	if err != nil {
 		return err
 	}

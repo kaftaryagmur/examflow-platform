@@ -65,6 +65,10 @@ spec:
                   key: MONGODB_PASSWORD
             - name: MONGODB_URI
               value: "mongodb://$(MONGODB_USERNAME):$(MONGODB_PASSWORD)@$(MONGODB_HOST):$(MONGODB_PORT)/$(MONGODB_DATABASE)?authSource=admin"
+            # Tracing: Tempo'nun OTLP/gRPC alıcısı (observability namespace'inde).
+            # Set olunca validation-service trace üretir; boş/silinirse kapalı (no-op).
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "tempo.observability.svc.cluster.local:4317"
           livenessProbe:
             httpGet:
               path: /health

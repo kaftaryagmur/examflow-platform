@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"cloud.google.com/go/pubsub"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 func init() {
@@ -74,6 +77,14 @@ func main() {
 	}
 
 	ctx := context.Background()
+
+	shutdownTracing, err := initTracing(ctx, "validation-service")
+	if err != nil {
+		logKV("warn", "validation-service", "tracing init failed", "error", err.Error())
+	} else {
+		defer func() { _ = shutdownTracing(context.Background()) }()
+	}
+
 	activityClient, activityCollection, err := connectActivityMongo(ctx)
 	if err != nil {
 		logKV("warn", "validation-service", "mongodb activity connection unavailable", "error", err.Error())
@@ -143,12 +154,26 @@ func startConsumer(ctx context.Context, projectID, subscriptionID, validatedTopi
 	logKV("info", "validation-service", "listening for messages", "subscription", subscriptionID)
 
 	err = sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+		// Gelen mesajdaki trace context'i çıkar (worker inject ettiyse zincir birleşir).
+		ctx = otel.GetTextMapPropagator().Extract(ctx, pubsubAttributesCarrier(msg.Attributes))
+		ctx, span := otel.Tracer("validation-service").Start(ctx, "validate document")
+		defer span.End()
+
 		event, err := parseProcessedEvent(msg.Data)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "message parse failed")
 			logKV("error", "validation-service", "message parse failed", "message_id", msg.ID, "error", err.Error())
 			msg.Ack()
 			return
 		}
+
+		span.SetAttributes(
+			attribute.String("messaging.message.id", msg.ID),
+			attribute.String("examflow.event_id", event.EventID),
+			attribute.String("examflow.document_id", event.DocumentID),
+			attribute.String("examflow.event_type", event.EventType),
+		)
 
 		if event.EventType != "document.processed" {
 			logKV("warn", "validation-service", "unexpected event type", "message_id", msg.ID, "event_type", event.EventType)
@@ -175,6 +200,8 @@ func startConsumer(ctx context.Context, projectID, subscriptionID, validatedTopi
 		}
 
 		if err := publishValidatedEvent(ctx, pub, result); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "validated event publish failed")
 			logKV("error", "validation-service", "validated event publish failed", "event_id", result.EventID, "document_id", result.DocumentID, "error", err.Error())
 			recordValidationActivity(ctx, result, activityStatusFailed, "document.validation.publish.failed", "Validation sonucu Pub/Sub kuyruguna gonderilemedi.", err.Error())
 			msg.Nack()
@@ -235,7 +262,11 @@ func publishValidatedEvent(ctx context.Context, pub publisher, result validation
 		return err
 	}
 
-	messageID, err := pub.Publish(ctx, &pubsub.Message{Data: payload}).Get(ctx)
+	// Trace context'i mesaj attribute'larına inject et: exam-service extract edince
+	// zincir validation -> exam olarak tamamlanır.
+	msg := &pubsub.Message{Data: payload, Attributes: map[string]string{}}
+	otel.GetTextMapPropagator().Inject(ctx, pubsubAttributesCarrier(msg.Attributes))
+	messageID, err := pub.Publish(ctx, msg).Get(ctx)
 	if err != nil {
 		return err
 	}

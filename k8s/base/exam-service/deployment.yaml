@@ -72,6 +72,10 @@ spec:
                   name: examflow-secret
                   key: ANTHROPIC_API_KEY
                   optional: true
+            # Tracing: Tempo'nun OTLP/gRPC alıcısı (observability namespace'inde).
+            # Set olunca exam-service trace üretir; boş/silinirse kapalı (no-op).
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "tempo.observability.svc.cluster.local:4317"
           readinessProbe:
             httpGet:
               path: /health

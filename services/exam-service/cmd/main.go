@@ -17,6 +17,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 func init() {
@@ -110,6 +112,13 @@ func main() {
 		port = "8080"
 	}
 
+	shutdownTracing, err := initTracing(context.Background(), "exam-service")
+	if err != nil {
+		logKV("warn", "exam-service", "tracing init failed", "error", err.Error())
+	} else {
+		defer func() { _ = shutdownTracing(context.Background()) }()
+	}
+
 	mongoClient, mongoDatabase, err := connectMongoDB(context.Background())
 	if err != nil {
 		logKV("warn", "exam-service", "mongodb connection unavailable", "error", err.Error())
@@ -181,6 +190,11 @@ func startConsumer(ctx context.Context, projectID, subscriptionID string) {
 	logKV("info", "exam-service", "listening for messages", "subscription", subscriptionID)
 
 	err = sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+		// Gelen mesajdaki trace context'i çıkar (validation inject ettiyse zincir birleşir).
+		msgCtx := otel.GetTextMapPropagator().Extract(ctx, pubsubAttributesCarrier(msg.Attributes))
+		_, span := otel.Tracer("exam-service").Start(msgCtx, "process validation event")
+		span.SetAttributes(attribute.String("messaging.message.id", msg.ID))
+		defer span.End()
 		handleValidatedMessage(pubsubMessage{msg: msg})
 	})
 	if err != nil {

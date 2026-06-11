@@ -22,3 +22,6 @@ data:
         isDefault: false
         jsonData:
           httpMethod: GET
+          # Service Graph sekmesi bu Prometheus datasource'undan graph metriklerini okur.
+          serviceMap:
+            datasourceUid: prometheus
